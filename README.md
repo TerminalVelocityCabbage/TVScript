@@ -740,6 +740,46 @@ on PlayerJoinedEvent(Player player): //parameter names must match the names of t
   print "Welcome to the server {player.name}"
 ```
 Game engines are encouraged to define their own events that are dispatched by the engine and can be listened to by mods.
+### Pattern matching in Events
+Events can be dispatched with a pattern match. This lets you filter before any code in the event block is executed.
+
+Let's take a player death event, maybe you only want to listen to deaths from a specific cause. Just clarify the event field with a know value that you're searching for, and the block of code will only be executed if the event matches that value.
+```
+class Player:
+    string name
+    ...
+
+enum DeathReason:
+    STABBED
+    SHOT
+    SOMETHING_ELSE
+
+on PlayerDeathEvent(Player player, DeathReason reason: DeathReason.STABBED):
+    print "{player.name} was killed by a knife!"
+```
+In a more complex example, you might want to match a field of an event parameter.
+```
+class Player:
+    string name
+    integer level
+    ...
+
+enum DeathReason: ...
+  
+class Cause:
+    DeathReason reason
+    Player killer
+    ...
+
+//Note that you don't need to specify the parameter names in field matching expressions, it's inferred by the compiler
+on PlayerDeathEvent(Player player, Cause cause: reason == DeathReason.STABBED):
+    print "{player.name} was killed by a knife!"
+```
+You can also chain together multiple expressions as long as they can evaluate to a boolean.
+```
+on PlayerDeathEvent(Player player, Cause cause: reason == DeathReason.STABBED && killer.level < 10):
+    print "{player.name} was killed by a knife by {cause.killer.name}, that's embarrasing since they're only level {cause.killer.level}"
+```
 
 ## Annotations
 Annotations don't really have a purpose in the language itself other than that they allow you to flag things. However, for game engine use these may define some behavior in the engine editor that would otherwise not be able to be derived
@@ -816,7 +856,7 @@ printNumbers(numbers)
 ```
 Without generics, we would have to define a new function for each type we want to be able to print, but we can easily generify the above function like this:
 ```
-printNumbers[T & number](list[T] numbers):
+printNumbers[T & Number](list[T] numbers):
     for [T number] in numbers:
         print number
 ```
@@ -865,3 +905,10 @@ function returnOddIndexedItems[T](list[T] items):
         if i % 2 == 0: oddIndexedItems.add(items[i])
     return oddIndexedItems
 ```
+
+## TODO
+These are things that I believe the language would benefit from, but that I have not yet gotten around to defining.
+- first-class citizen functions
+- results/errors/throw/exceptions
+- executing scripts (main and main(arguments)) do these have a return type for exit status?
+- async/await? or other strategy for handling async code?
