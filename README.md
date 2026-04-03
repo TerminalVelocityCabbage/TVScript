@@ -64,14 +64,14 @@ function doRandomThings(integer a, integer b = 20):
     // Multi dimensional arrays are also supported
     list[integer][integer] twoDimensional = list[][]
 
-    for filled -> integer i:
+    for [integer i] in filled::
         print(i):
 
     // Maps are cooler
     map[string|integer] employeeAges = map[]("brad":20, "samantha":21)
     integer bar = employeeAges["brad"] //sets bar to 20
 
-    for employeeAges -> [string name | integer age]:
+    for [string name | integer age] in employeeAges:
         // String formatting
         print "{name} is {age} years old"
 
@@ -98,7 +98,7 @@ enum Color:
 
 // Traits
 trait emitssound:
-    makeSound():
+    default makeSound():
         print "beep"
 trait flies:
     fly()
@@ -119,11 +119,11 @@ class Dog < Animal [emitssound, flies]:
         dispatch onDeath(deathMessage: "dogs can't fly")
 
 @EditorHint("This is a hint that appears in the editor")
-event onDeath:
+event DeathEvent:
     string deathMessage
     Color messageColor = Color.RED
 
-on onDeath:
+on DeathEvent(string: deathMessage):
     print deathMessage
 
 annotation EditorHint:
@@ -247,7 +247,11 @@ public class ModInfo:
 For the above definition any script can access `ModInfo` to create instances of it etc. Any script in the package1 folder can then get the gameVersion from that object, however the hostName field is accessible only to methods defined in the same block as the field (the class definition), similarly only scripts in the mod1 folder can access the mainEntrypoint field.
 
 In a regular environment the mod visibility modifier will never be used, but when embedding this language into a game engine, it's useful.
-#### Importing functionality
+### Default visibility
+By default, all classes, methods, and fields are protected. This means they can only be accessed by scripts in the same package or a subpackage.
+Scripts are public, and there is currently no way to make a script private, you control the visibility of members individually.
+
+### Importing functionality
 to import some functionality from one script to another, you can use the import keyword at the start of your file
 `mods/mod1/scripts/package2/script3.tvs`
 ```
@@ -365,6 +369,10 @@ Blocks are used to group statements together. Blocks are delineated with a `:` a
 something: //: defines a block (something is not a keyword, this is an example)
     print "hello" //statements belonging to the block must be indented
 ```
+Blocks with only a single statement can be written on one line the above example could be written as:
+```
+something: print "hello"
+```
 
 ## Lists
 Lists are a generic sequence of object or value types including other lists or maps. Lists are always indexed starting at 0. Negative indices count from the end.
@@ -447,27 +455,27 @@ Loops are used to execute similar logic a number of times or general iteration.
 ### For Loops
 A range is a special type in TVScript so you can define them as an expression in for loops instead of needing to define it like in java
 ```
-for(0..10):
+for 0..10:
     print("hello")
 ```
-If you need to track the current itteration you can pass a variable to the loop
+If you need to track the current itteration, you can pass a variable to the loop
 ```
-for(0...10 -> i):
+for [integer i] in 0...10:
     print(i)
 ```
 ### While loops
 ```
-while(condition):
+while condition:
     print("hello indefinetley")
 ```
 ### Iterating over a list
 ```
-for([string value] in list):
+for [string value] in list:
     print(value)
 ```
 ### Iterating a map
 ```
-for([string key | string value] in map):
+for [string key | string value] in map:
     print("{key} = {value}"
 ```
 ## Conditions
@@ -518,11 +526,13 @@ functions can also be used as expressions by returning a value. The return type 
 function add(integer a, integer b) -> integer:
   return a + b
 ```
-list parameters
+If no return type is specified, the function is assumed to return `void`. You can specify this as the return type if you feel so inclined, but it is not required. In our earlier example: ``function greet(string name):`` is equivalent to ``function greet(string name) -> void:``.
+### Variable Parameters
+You can define functions that take in a variable number of parameters by using the `...` syntax.
 ```
 function addAll(integer[...] numbers) -> integer:
   integer sum = 0
-  for(num in numbers):
+  for [integer num] in numbers:
     sum += num
   return sum
 ```
@@ -588,7 +598,7 @@ type vector2d: //type names are usually lowercase to differentiate them from cla
 ```
 By itself, this definition doesn't provide many benefits aside from how they can be initialized. You can initialize a type like this:
 ```
-vector2d v = {x: 10, y:10}
+vector2d v = new vector2d(x: 10, y: 10)
 ```
 Since a type is not an object, but a multi-part value instead, there is no `new` keyword to create it. Note that type fields are all constants and cannot be modified. That's where operator overloading comes in.
 ### Operator Overloading
@@ -599,25 +609,19 @@ type vector2d:
     decimal y
     
     operator add(vector2d right, vector2d left) -> vector2d:
-        return { 
-            x: left.x + right.x, 
-            y: left.y + right.y 
-        }
+        return new vector2d(left.x + right.x, left.y + right.y)
 
     //You don't need to specify the parameter types or the return type for operator methods, it's inferred by the compiler
-    oprtator subtract(left, right):
-        return { 
-            x: left.x - right.x, 
-            y: left.y - right.y 
-        }
+    operator subtract(left, right):
+        return new vector2d(left.x - right.x, left.y - right.y)
 ```
 Now you can do things like:
 ```
-vector2d v1 = {x: 10, y: 10}
-vector2d v2 = {x: 5, y: 5}
-vector2d sum = v1 + v2 //results in vector2d{x: 15, y: 15}
+vector2d v1 = new vector2d(x: 10, y: 10)
+vector2d v2 = new vector2d(x: 5, y: 5)
+vector2d sum = v1 + v2 //results in vector2d(x: 15, y: 15)
 //However in our above definition you can't do:
-vector2d div = v1 / v2 //error, unefined operation (no operator method defined for / on type "vector2d")
+vector2d div = v1 / v2 //error, unefined operation (no operator method defined for "/" on type "vector2d")
 ```
 
 ## Inheritance
@@ -724,16 +728,16 @@ print HorizontalLayout.LEFT.direction
 Events are defined similarly to classes, but with the `event` keyword. Events typically have an "Event" suffix. Events can carry some data with them defined as fields, just like classes.
 ```
 event PlayerJoinedEvent:
-  player playerThatJoined
+  Player player
 ```
 Events do not really get instantiated; they get dispatched immediately to any listeners or entry points that listen to them. dispatch an event with the dispatch keyword
 ```
-dispatch PlayerJoinedEvent(playerThatJoined: player)
+dispatch PlayerJoinedEvent(player: aPlayerObject)
 ```
-Events acts as a sort of entrypoint to the script, and can be listened to by defining a block in the root of the script using the `on` keyword.
+Events acts as a sort of entrypoint to the script, and can be listened to by defining a block in the root of the script using the `on` keyword. Any data associated wit the event that you want to use in your event must be specified in the event definition.
 ```
-on PlayerJoinedEvent:
-  print("welcome to the server {player.name}")
+on PlayerJoinedEvent(Player player): //parameter names must match the names of the fields in the event definition
+  print "Welcome to the server {player.name}"
 ```
 Game engines are encouraged to define their own events that are dispatched by the engine and can be listened to by mods.
 
@@ -789,4 +793,75 @@ You can also unwrap an optional in conditionals
 ```
 if optionalPlayer ? player:
   print(player.name())
+```
+
+## Generics
+Generics are a way to define functionality without requiring a specific type. Lets take one of the most basic examples possible.
+```
+printNumbers(list[integer] numbers):
+    for [integer number] in numbers:
+        print number
+```
+We can call the above function like this:
+```
+list[integer] numbers = [1, 2, 3]
+printNumbers(numbers)
+//Prints 1 2 3 to the console
+```
+But now we can't do this:
+```
+list[decimal] numbers = [1.1, 2.2, 3.3]
+printNumbers(numbers)
+//Error no method printNumbers(list[decimal]) found
+```
+Without generics, we would have to define a new function for each type we want to be able to print, but we can easily generify the above function like this:
+```
+printNumbers[T & number](list[T] numbers):
+    for [T number] in numbers:
+        print number
+```
+Since integer and decimal both have the trait number, they both match the requirements of the generic function. We can reger to this generig type now as T. T is just the standard first generic type name people use in generics, but this can be any identifier you choose, though we encourage you capitalize them and industry standard is just a single letter most of the time.
+
+Now that covers how to match a single trait, but what if we want to match multiple traits or even match a class that extends a specific parent class? lets go back to our animal example:
+```
+trait MakesSound:
+  string makeSound()
+
+class Animal:
+    string name
+    constructor(string name):
+        this.name = name
+  
+class Dog < Animal:
+    constructor(string dogName): super(name: dogName)
+    override makeSound(): bark()
+    bark(): print "woof"
+  
+class Cat < Animal:
+    constructor(string catName): super(name: catName)
+    override makeSound(): meow()
+    meow(): print "meow"
+```
+Let's implement a generic cage class which can house any animal that makes sounds:
+```
+class Cage[T < Animal & MakesSound]:
+    
+    Animal animal
+    
+    constructor(Animal animal): this.animal = animal
+    
+    kickCage():
+        print "kicking cage..."
+        animal.makeSound()
+        print "The {this.name} didn't like that, shame on you!"
+```
+Now any animal that makes a sound can be put in a cage, and when you kick the cage you get notified about how horrible of a person you are. Note that any fields defined on the clas you are extending in your generic constraint are accessible if they are not marked as private, and any methods from the class or traits you constrain with are also accessible if they are not private.
+
+Note that your constraint can only have one super class and as many traits as you want. ``class Cage[T < ParentClass & Trait1 & Trait2 & EtcTraits]:`` If you do not need to access any fields or methods from any parent class or traits you don't have to constrain it, see example below:
+```
+function returnOddIndexedItems[T](list[T] items):
+    list[T] oddIndexedItems = []
+    for [integer i] in 1..items.length:
+        if i % 2 == 0: oddIndexedItems.add(items[i])
+    return oddIndexedItems
 ```
