@@ -909,6 +909,8 @@ function returnOddIndexedItems[T](list[T] items):
 ## TODO
 These are things that I believe the language would benefit from, but that I have not yet gotten around to defining.
 - first-class citizen functions
+- if statements as expressions
+- loops as expressions (for and while)
 - results/errors/throw/exceptions
 - executing scripts (main and main(arguments)) do these have a return type for exit status?
 - async/await? or other strategy for handling async code?
