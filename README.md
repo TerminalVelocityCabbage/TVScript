@@ -300,6 +300,7 @@ The following types are built in:
 - `list[type]`
 - `map[keyType|valueType]`
 - `range`
+- `function`
 
 ### none
 The `none` type is used to represent the absence of a value.
@@ -316,7 +317,7 @@ The `decimal` type is used to represent floating point numbers. Equivalent to `d
 ### string
 The `string` type is used to represent text. String literals are surrounded by double quotes. `"hello"` multiline strings are also allowed with tripple-quoted syntax. 
 
-```access transformers
+```
 """
 this is a multiline
 string; yay!
@@ -331,6 +332,9 @@ The `map[keyType|valueType]` type is used to represent a map of key value pairs 
 
 ### range
 The `range` type is used to represent a range of values. Defined by `x..y` where `x` is the start and `y` is the end of the range. Ranges are inclusive of both ends and are really only used for integers.
+
+### function
+Functions are first-class citizens in TVScript. But since this is a somewhat advanced and nuanced feature, we will circle back to them later. 
 
 ## Variables
 Variables are defined with a type first, then an identifier, then a value.
@@ -468,6 +472,17 @@ for [integer i] in 0...10:
 while condition:
     print("hello indefinetley")
 ```
+### Loops as Expressions
+Loops can also be used as expressions to assign values to variables.
+```
+integer sum = 0
+sum = for [integer i] in 0...10: sum += i
+print sum //prints 55
+
+var sum2 = 0
+sum2 = while sum2 < 10: sum2 += 1
+print sum //prints 10
+```
 ### Iterating over a list
 ```
 for [string value] in list:
@@ -489,7 +504,14 @@ else
   pass //If condition is false and condition2 is false this block will be executed
 ```
 ### Conditional Expressions
-AKA Ternary operators
+Conditions can be used as expressions to assign values to variables.
+```
+integer value = if condition:
+  trueValue
+else:
+  falseValue
+```
+Or you can use Ternary operators
 ```
 boolean value = condition ? ifTrue : elseFalse
 ```
@@ -797,6 +819,9 @@ class vector3d:
   ...
 ```
 
+# Danger zone
+Beyond this point are advanced features not recommended for beginner use. If you're just getting started, I would recommend you skip this section. If you've been programming for a while, or have used other languages before keep reading; there is a lot of juicy stuff beyond.
+
 ## Optionals
 Optionals are a way to define an object as potentially being none.
 
@@ -834,6 +859,67 @@ You can also unwrap an optional in conditionals
 if optionalPlayer ? player:
   print(player.name())
 ```
+
+## Functions as values
+Functions are first-class citizens in tvscript. This means that they act similarly to other values in the language.
+
+Functions can be assigned to variables
+```
+const squareFunction = function square(integer num) -> integer:
+    return num * num
+```
+Functions can be parameters of other functions
+```
+function apply(list[integer] numbers, function funcArg(integer num) -> integer):
+    list[integer] newNumbers = []
+    for [integer num1] in numbers:
+        newNumbers.add(funcArg(num: num1))
+    return newNumbers
+```
+Functions can be passed as arguments to other functions
+```
+list[integer] numbers = [](1, 2, 3, 4)
+list[integer] squareNumbers = apply(numbers: numbers, funcArg: squareFunction) //sets squareNumbers to (1, 4, 9, 16)
+```
+Optionally, you can pass an inline function as a parameter as long as it is a single statement. Inline functions are not required to be named.
+```
+list[integer] numbers = [](1, 2, 3, 4)
+list[integer] squareNumbers = apply(numbers: numbers, funcArg: (integer num) -> num * num) //sets squareNumbers to (1, 4, 9, 16)
+```
+Functions can be defined inside other blocks or functions, their scope is limited to the block they are defined in.
+```
+function squareList(list[integer] numbers) -> list[integer]:
+    
+    //Inline function
+    function square(integer num) -> integer:
+        return num * num
+    
+    list[integer] newNumbers = []
+    for [integer num] in numbers: 
+        newNumbers.add(square(num))
+        
+    return newNumbers
+```
+Functions can return functions
+```
+function makeMultiplier(integer factor) -> ret(integer x) -> integer:
+  return ret(integer x) -> integer:
+    return x * factor
+
+const double = makeMultiplier(factor: 2)
+const result = double(x: 5) // 10
+```
+You can store functions in maps and lists
+```
+map[string | function(integer num) -> integer] operations = [|](
+  "square": squareFunction, //Function variable
+  "double": function(integer num) -> integer: return num * 2 //Inline function
+)
+
+//Retrieving a function from a map or list can be invoked like any other function
+result = operations["double"](num: 5) //10
+```
+A note about function types: Function parameter names are a part of the function type: ``function(integer num) -> integer`` does not equal ``function(integer x) -> integer``. Function return types are also part of the type: ``function(integer num) -> integer`` does not equal ``function(integer num) -> string``.
 
 ## Generics
 Generics are a way to define functionality without requiring a specific type. Lets take one of the most basic examples possible.
@@ -907,10 +993,7 @@ function returnOddIndexedItems[T](list[T] items):
 ```
 
 ## TODO
-These are things that I believe the language would benefit from, but that I have not yet gotten around to defining.
-- first-class citizen functions
-- if statements as expressions
-- loops as expressions (for and while)
+These are things that I believe the language would benefit from, but that I have not yet gotten around to defining:
 - results/errors/throw/exceptions
 - executing scripts (main and main(arguments)) do these have a return type for exit status?
 - async/await? or other strategy for handling async code?
