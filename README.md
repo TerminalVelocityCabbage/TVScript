@@ -992,6 +992,114 @@ function returnOddIndexedItems[T](list[T] items):
     return oddIndexedItems
 ```
 
+## Asynchronous execution
+Asynchronous execution is a way to allow the execution of code to continue while other code is being executed.
+
+Consider the following function and event:
+```
+function getPlayerDataFromDatabase(id playerID) -> Player:
+  return ...
+
+on PlayerJoinedEvent(Player player):
+    PlayerData playerData = getPlayerDataFromDatabase(player.id)
+    
+    print "Player {player.name} joined the server"
+```
+In this example the function getPlayerDataFromDatabase will block execution of anything else until it returns. This can be a problem if the function takes a long time to complete, as it will prevent other code from running. To avoid this, you can use asynchronous execution to allow the function to run in the background while other code continues to execute.
+```
+async function getPlayerDataFromDatabase(id playerID) -> Player:
+  return ...
+```
+Then in the event listener we can do:
+```
+on PlayerJoinedEvent(Player player):
+    //The await keyword suspends execution of the current thread until the asynchronous function returns without stopping other actions
+    PlayerData playerData = await getPlayerDataFromDatabase(player.id)
+    
+    print "Player {player.name} joined the server"
+```
+Note that the return type of an asynchronous function is a special `Task[T]` type. So when a function is declared as asynchronous, the return type is automatically boxed into the `Task[T]` type. When you use the await keyword the value is automatically unboxed into the type of the function. This means you can do this:
+```
+on PlayerJoinedEvent(Player player):
+    Task[PlayerData] task = getPlayerDataFromDatabase(player.id)
+    PlayerData playerData = await task
+    
+    print "Player {player.name} joined the server"
+```
+If a task is never awaited, you can use the methods defined on `Task[T]` like any other class.
+
+If there is no return value, or you want to just fire and forget the task, you can use the `launch` keyword instead of `await`. This will still execute the function in a non-blocking manner, but doesn't suspend the function or anything like that.
+```
+async function saveGame():
+    ...
+
+//Later
+launch saveGame()
+```
+
+In the case where you want to explicity block the execution of the current thread until the async function returns, you can use the ``blocking`` keyword. This keyword also unboxes the value:
+```
+on PlayerJoinedEvent(Player player):
+    //Probably don't ever do this, but you can if you have a specific reason
+    PlayerData playerData = blocking getPlayerDataFromDatabase(player.id)
+    
+    print "Player {player.name} joined the server"
+```
+If an async function results in an error, the error will be propagated to the caller on the current thread.
+
+If you want to concurrently await multiple async functions, you can use an await block. Say you need to fetch data from multiple databases:
+```
+on PlayerJoinedEvent(Player player):
+
+    //Waits for all the async functions to return before continuing
+    //Creates all parameters as variables in the same scope as the await block
+    await (Data1 data1, Data2 data2):
+        //Note that you don't need to specify await on each function call, it is inferred by the compiler
+        data1 = getPlayerDataFromDatabase1(player.id)
+        data2 = getPlayerDataFromDatabase2(player.id)
+  
+    //Will suspend execution until await block above is complete
+    print "{data1} and {data2}"
+```
+There is also a similar `blocking` block which will block the current thread until the async functions return. Note that all of these expressions in this block are evaluated in parallel, and that the order of evaluation is not guaranteed. This is still faster than executing them sequentially, but does block the current thread until whichever function takes the longest to evaluate is complete.
+
+Also note that not all functions in an await block or a blocking block need to be async functions.
+
+Await and blocking blocks also have a few other benefits, such as setting timeouts:
+```
+await (Data data) timeout 10s:
+    data = getSomeData() //Will suspend execution for 10 seconds if getSomeData() does not return within that time.
+```
+In the above example if getSomeData() does not return within 10 seconds, `data` will be set to none. If you want to set a default value for the variable, just add a default block below it:
+```
+await (Data data) timeout 10s:
+    data = getSomeData()
+default:
+    data = defaultData
+```
+By default, there is no timeout, and any values sucessfully evaluated within the timeout specified will be returned by their evaluated values, if you want an all-or-nothing timeout, add `all` to the async or blocking block. This will cause all values be assigned their default value:
+```
+await all (Data1 data1, Data2 data2) timeout 10s:
+    data1 = getSomeData1()
+    data2 = getSomeData2()
+default:
+    data1 = defaultData1
+    data2 = defaultData2
+```
+If any of the async functions in the await block or blocking block throw an error, you can catch it with a catch block:
+```
+await (Data data):
+    data = getSomeData()
+default:
+    data = defaultData
+catch (ErrorType1 error):
+    //OR handle error here
+    print error:
+catch (ErrorType2 error):
+    pass //Ignore this type of error
+```
+The order of the default and catch blocks is not important, the only requirements is that the await or blocking block must be first.
+
 ## TODO
 These are things that I believe the language would benefit from, but that I have not yet gotten around to defining:
 - results/errors/throw/exceptions
