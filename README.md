@@ -46,9 +46,9 @@ function doRandomThings(integer a, integer b = 20):
 
     //conditionals are allowed
     if a < localConst:
-        print(a)
+        print a
     else if b > 5:
-        print(b)
+        print b
     else:
         print "fail"
 
@@ -56,8 +56,8 @@ function doRandomThings(integer a, integer b = 20):
     for 0..10:
         print "printing"
 
-    for 0..10 -> i:
-        print(i)
+    for [integer i] in 0..10:
+        print i
 
     while a != 0:
         a--
@@ -70,7 +70,7 @@ function doRandomThings(integer a, integer b = 20):
     list[integer][integer] twoDimensional = list[][]
 
     for [integer i] in filled:
-        print(i):
+        print i
 
     // Maps are cooler
     map[string|integer] employeeAges = map[]("brad":20, "samantha":21)
@@ -80,13 +80,13 @@ function doRandomThings(integer a, integer b = 20):
         // String formatting
         print "{name} is {age} years old"
 
-  match b:
-    3: print "three"
-    4:
-        print "four"
-        print "my lucky number!"
-    5..10: print "five thru ten"
-    default: print "no match"
+    match b:
+        3: print "three"
+        4:
+            print "four"
+            print "my lucky number!"
+        5..10: print "five thru ten"
+        default: print "no match"
 
 // Classes
 class Animal:
@@ -102,14 +102,14 @@ enum Color:
     BLUE
 
 // Traits
-trait emitssound:
+trait EmitsSound:
     default makeSound():
         print "beep"
-trait flies:
+trait Flies:
     fly()
 
 // Inheritance
-class Dog < Animal [emitssound, flies]:
+class Dog < Animal [EmitsSound, Flies]:
 
     constructor(string breed):
         super(name: breed) // Use super to call parent constructors
@@ -121,14 +121,14 @@ class Dog < Animal [emitssound, flies]:
   
     //Implement undefined behaviour with the same keyword
     override fly():
-        dispatch onDeath(deathMessage: "dogs can't fly")
+        dispatch DeathEvent(deathMessage: "dogs can't fly")
 
 @EditorHint("This is a hint that appears in the editor")
 event DeathEvent:
     string deathMessage
     Color messageColor = Color.RED
 
-on DeathEvent(string: deathMessage):
+on DeathEvent(string deathMessage):
     print deathMessage
 
 annotation EditorHint:
@@ -143,6 +143,10 @@ The following words are reserved and cannot be used as identifiers:
 | Keyword | Description |
 | --- | --- |
 | `import` | Imports logic from another script |
+| `public` | Public visibility modifier |
+| `private` | Private visibility modifier |
+| `protected` | Protected visibility modifier |
+| `mod` | Mod visibility modifier |
 | `var` | Defines a variable |
 | `const` | Defines a constant variable |
 | `integer` | Defines an integer variable |
@@ -164,9 +168,12 @@ The following words are reserved and cannot be used as identifiers:
 | `class` | Defines a class |
 | `new` | Creates a new instance of a class |
 | `trait` | Defines a trait |
+| `type` | Defines a type |
+| `operator` | Defines an operator overload |
 | `this` | The current instance of the class |
-| `super` | Calls the parent constructor |
+| `super` | Calls the parent constructor or method |
 | `override` | Overrides a method |
+| `instanceof` | Checks if an object is an instance of a type |
 | `as` | Cast a value to a different type |
 | `list` | Defines a list |
 | `map` | Defines a map |
@@ -175,6 +182,15 @@ The following words are reserved and cannot be used as identifiers:
 | `on` | Defines an event handler |
 | `dispatch` | Dispatches an event |
 | `annotation` | Defines an annotation |
+| `throw` | Throws an error |
+| `throws` | Declares that a function throws an error |
+| `try` | Defines a try block |
+| `catch` | Defines a catch block |
+| `async` | Defines an asynchronous function |
+| `await` | Suspends execution until an asynchronous function returns |
+| `launch` | Launches an asynchronous function without suspending |
+| `all` | Used in await blocks for all-or-nothing completion |
+| `timeout` | Used in await blocks to set a timeout |
 | `pass` | A do nothing statement |
 
 ## Operators
@@ -182,7 +198,7 @@ The following operators are supported:
 | Operator | Description |
 | --- | --- |
 | `(` `)` | Grouping (Highest Priority) Not really an operator, but let you define precedence |
-| `x[index]` | Subsciption |
+| `x[index]` | Subscription |
 | `x.attribute` | Attribute access |
 | `foo()` | Function call |
 | `x.method()` | Method call |
@@ -218,7 +234,7 @@ The following literals are supported:
 | `123` | Integer literal |
 | `123.456` | Decimal literal |
 | `"hello"` | String literal |
-| `"""hello"""` | Tripple Quoted String literal |
+| `"""hello"""` | Triple Quoted String literal |
 
 ## Script Layouts
 Scripts are expected to be organized in a hierarchical filesystem, and as such these visibility modifiers are derived by the scripts location in that filesystem.:
@@ -262,25 +278,25 @@ to import some functionality from one script to another, you can use the import 
 ```
 import mod1.package1.script1.ModInfo
 
-ModInfo modinfo = modinfo()
+ModInfo modinfo = new ModInfo()
 ```
 if paths to a script have conflicting names you can clarify the path or use as in the import
 ```
-some.package.here.ModInfo
-some.other.package.here.ModInfo //error, ModInfo already exists
+import some.package.here.ModInfo
+import some.other.package.here.ModInfo //error, ModInfo already exists
 
-#instead do
-some.package.here.ModInfo
+//instead do
+import some.package.here.ModInfo
 
-ModInfo modinfo = modinfo()
-some.other.package.here.ModInfo modinfo = some.other.package.here.modinfo()
+ModInfo modinfo = new ModInfo()
+some.other.package.here.ModInfo modinfo2 = new some.other.package.here.ModInfo()
 
-#however this is ugly af, so you can also do this
-some.package.here.ModInfo
-some.other.package.here.ModInfo as OtherModInfo //you can use this if there is no conflict too
+//however this is ugly af, so you can also do this
+import some.package.here.ModInfo
+import some.other.package.here.ModInfo as OtherModInfo //you can use this if there is no conflict too
 
-ModInfo modinfo = ModInfo()
-OtherModInfo modinfo = OtherModInfo()
+ModInfo modinfo3 = new ModInfo()
+OtherModInfo modinfo4 = new OtherModInfo()
 ```
 
 ## Comments
@@ -395,7 +411,7 @@ list[integer] filled = [](1, 4, 5, 12, 12) //init the list with some known start
 ### Accessing and Assigning Values
 To access a value in a list, you can index it with square brackets.
 ```
-var integerList = [](1, 2, 3, 4, 5)
+list[integer] integerList = [](1, 2, 3, 4, 5)
 
 integer firstElement = integerList[0] //sets firstElement to 1
 integer lastElement = integerList[-1] //sets lastElement to 5
@@ -438,10 +454,10 @@ example.reverse() //sets example to (5, 4, 3, 2, 1)
 boolean contains = example.contains(5) //sets contains to true
 
 //You can obtain sublists from a list
-list[integer] example = [](1, 2, 3, 4, 5)
-list[integer] sublist = example[1..3] //sets sublist to (2, 3, 4)
-list[integer] sublist = example[1..] //sets sublist to (2, 3, 4, 5)
-list[integer] sublist = example[..3] //sets sublist to (1, 2, 3, 4)
+list[integer] example2 = [](1, 2, 3, 4, 5)
+list[integer] sublist = example2[1..3] //sets sublist to (2, 3, 4)
+list[integer] sublist2 = example2[1..] //sets sublist2 to (2, 3, 4, 5)
+list[integer] sublist3 = example2[..3] //sets sublist3 to (1, 2, 3, 4)
 ```
 
 ## Maps
@@ -465,38 +481,38 @@ Loops are used to execute similar logic a number of times or general iteration.
 A range is a special type in TVScript so you can define them as an expression in for loops instead of needing to define it like in java
 ```
 for 0..10:
-    print("hello")
+    print "hello"
 ```
-If you need to track the current itteration, you can pass a variable to the loop
+If you need to track the current iteration, you can pass a variable to the loop
 ```
-for [integer i] in 0...10:
-    print(i)
+for [integer i] in 0..10:
+    print i
 ```
 ### While loops
 ```
 while condition:
-    print("hello indefinetley")
+    print "hello indefinitely"
 ```
 ### Loops as Expressions
 Loops can also be used as expressions to assign values to variables.
 ```
 integer sum = 0
-sum = for [integer i] in 0...10: sum += i
+sum = for [integer i] in 0..10: sum += i
 print sum //prints 55
 
 var sum2 = 0
 sum2 = while sum2 < 10: sum2 += 1
-print sum //prints 10
+print sum2 //prints 10
 ```
 ### Iterating over a list
 ```
-for [string value] in list:
-    print(value)
+for [string value] in someList:
+    print value
 ```
 ### Iterating a map
 ```
-for [string key | string value] in map:
-    print("{key} = {value}"
+for [string key | string value] in someMap:
+    print "{key} = {value}"
 ```
 ## Conditions
 If statements are used to execute logic based on a condition.
@@ -505,7 +521,7 @@ if condition:
   pass //If condition evaluates to true this block will be executed
 else if condition2: 
   pass //If condition is false and condition2 is true this block will be executed
-else
+else:
   pass //If condition is false and condition2 is false this block will be executed
 ```
 ### Conditional Expressions
@@ -518,14 +534,14 @@ else:
 ```
 Or you can use Ternary operators
 ```
-boolean value = condition ? ifTrue : elseFalse
+boolean value = condition ? trueValue : falseValue
 ```
 #### Match Statements
 aka switch statements in java
 ```
 match someString:
-  "hello": print("matches hello")
-  "world": print("matches world")
+  "hello": print "matches hello"
+  "world": print "matches world"
 ```
 #### Match expressions
 ```
@@ -557,7 +573,7 @@ If no return type is specified, the function is assumed to return `void`. You ca
 ### Variable Parameters
 You can define functions that take in a variable number of parameters by using the `...` syntax.
 ```
-function addAll(integer[...] numbers) -> integer:
+function addAll(integer... numbers) -> integer:
   integer sum = 0
   for [integer num] in numbers:
     sum += num
@@ -568,8 +584,8 @@ You call a function by name
 ```
 sayHello() //Prints "hello" to the console
 greet(name: "keith") //Prints "greetings keith" to the console
-var sum = add(x: 10, y: 20) //sets sum to 30
-var sum2 = addAll(numbers: [10, 20, 30]) //sets sum2 to 60
+var sum = add(a: 10, b: 20) //sets sum to 30
+var sum2 = addAll(numbers: [](10, 20, 30)) //sets sum2 to 60
 ```
 
 ## Classes
@@ -590,7 +606,7 @@ class Player:
   string name
   integer health
   
-  constructor(string name, health: integer = 100):
+  constructor(string name, integer health = 100):
     this.name = name
     this.health = health != none ? health : 100
 ```
@@ -605,8 +621,8 @@ class Vector2d:
 
   //Adds a vector to this vector and returns a new value
   //Note that methods are not functions per-se, so we don't use the function keyword here
-  add(vector2d delta) -> vector2d:
-    return vector2d(this.x + delta.x, this.y + delta.y)
+  add(Vector2d delta) -> Vector2d:
+    return new Vector2d(x: this.x + delta.x, y: this.y + delta.y)
 ```
 ### Default values
 This allows you to define an optional default value for a field when it is not set in the constructor.
@@ -625,7 +641,7 @@ type vector2d: //type names are usually lowercase to differentiate them from cla
 ```
 By itself, this definition doesn't provide many benefits aside from how they can be initialized. You can initialize a type like this:
 ```
-vector2d v = new vector2d(x: 10, y: 10)
+vector2d v = vector2d(x: 10, y: 10)
 ```
 Since a type is not an object, but a multi-part value instead, there is no `new` keyword to create it. Note that type fields are all constants and cannot be modified. That's where operator overloading comes in.
 ### Operator Overloading
@@ -635,17 +651,17 @@ type vector2d:
     decimal x
     decimal y
     
-    operator add(vector2d right, vector2d left) -> vector2d:
-        return new vector2d(left.x + right.x, left.y + right.y)
+    operator add(vector2d left, vector2d right) -> vector2d:
+        return vector2d(x: left.x + right.x, y: left.y + right.y)
 
     //You don't need to specify the parameter types or the return type for operator methods, it's inferred by the compiler
     operator subtract(left, right):
-        return new vector2d(left.x - right.x, left.y - right.y)
+        return vector2d(x: left.x - right.x, y: left.y - right.y)
 ```
 Now you can do things like:
 ```
-vector2d v1 = new vector2d(x: 10, y: 10)
-vector2d v2 = new vector2d(x: 5, y: 5)
+vector2d v1 = vector2d(x: 10, y: 10)
+vector2d v2 = vector2d(x: 5, y: 5)
 vector2d sum = v1 + v2 //results in vector2d(x: 15, y: 15)
 //However in our above definition you can't do:
 vector2d div = v1 / v2 //error, unefined operation (no operator method defined for "/" on type "vector2d")
@@ -659,14 +675,14 @@ class Entity:
     string name
     
     onSpawn():
-        print("spawned {name}")
+        print "spawned {name}"
   
 class Player < Entity:
     //inherited string name field
     integer health = 10
     
     override onSpawn(): //override methods from the parent class
-        print("player spawned {name}")
+        print "player spawned {name}"
 
 ...
 
@@ -709,24 +725,26 @@ Good design would prevent this, but if two traits are implemented by a class, an
 ```
 class Human:
   const string name
-class Dude < person:
+class Dude < Human:
+  constructor(string name): super(name: name)
   sup():
-    print("sup")
+    print "sup"
   ...
-class Gurl < person:
+class Gurl < Human:
+  constructor(string name): super(name: name)
   heyy():
-    print("heyy")
+    print "heyy"
   ...
 
-Human billy = new Dude("billy")
-Human sally = new Gurl("sally")
-boolean isPerson = billy instanceof person //true beause dude extends person
-billy.sup() //ERROR because the variable billy is of type human; not dude
+Human billy = new Dude(name: "billy")
+Human sally = new Gurl(name: "sally")
+boolean isHuman = billy instanceof Human //true because dude extends human
+billy.sup() //ERROR because the variable billy is of type Human; not Dude
 
 Dude dudeVar = billy as Dude
 dudeVar.sup() //prints "sup"
 
-#Alternativley you can do this
+//Alternatively you can do this
 if billy instanceof Dude -> dudeBilly: //Creates a new variable dudeBilly of type Dude
   dudeBilly.sup() //prints "sup"
 ```
@@ -853,12 +871,12 @@ class Person:
 ```
 #### Accessing optional data
 ```
-#Maybe get a player from a database entry
-Player? optionalPlayer = getPlayerFromDatabase("playername")
+//Maybe get a player from a database entry
+Player? optionalPlayer = getPlayerFromDatabase(name: "playername")
 ```
 Optionals can be evaluated as booleans where false means the value is none by suffixing the variable name with a ? in the if statement:
 ```
-if optionalPlayer ?:
+if optionalPlayer?:
   print optionalPlayer.firstName
 ```
 If you don't care if the value is none, you can just use the value directly and return none if it is none
@@ -875,7 +893,7 @@ string name = player && player.middleName
 You can also unwrap an optional in conditionals
 ```
 if optionalPlayer ? player:
-  print(player.name())
+  print player.name
 ```
 
 ## Functions as values
@@ -920,51 +938,50 @@ function squareList(list[integer] numbers) -> list[integer]:
 ```
 Functions can return functions
 ```
-function makeMultiplier(integer factor) -> ret(integer x) -> integer:
-  return ret(integer x) -> integer:
-    return x * factor
+function makeMultiplier(integer factor) -> (integer x) -> integer:
+  return (integer x) -> x * factor
 
 const double = makeMultiplier(factor: 2)
 const result = double(x: 5) // 10
 ```
 You can store functions in maps and lists
 ```
-map[string | function(integer num) -> integer] operations = [|](
+map[string | (integer num) -> integer] operations = [|](
   "square": squareFunction, //Function variable
-  "double": function(integer num) -> integer: return num * 2 //Inline function
+  "double": (integer num) -> integer: return num * 2 //Inline function
 )
 
 //Retrieving a function from a map or list can be invoked like any other function
 result = operations["double"](num: 5) //10
 ```
-A note about function types: Function parameter names are a part of the function type: ``function(integer num) -> integer`` does not equal ``function(integer x) -> integer``. Function return types are also part of the type: ``function(integer num) -> integer`` does not equal ``function(integer num) -> string``.
+A note about function types: Function parameter names are a part of the function type: ``(integer num) -> integer`` does not equal ``(integer x) -> integer``. Function return types are also part of the type: ``(integer num) -> integer`` does not equal ``(integer num) -> string``.
 
 ## Generics
 Generics are a way to define functionality without requiring a specific type. Lets take one of the most basic examples possible.
 ```
-printNumbers(list[integer] numbers):
+function printNumbers(list[integer] numbers):
     for [integer number] in numbers:
         print number
 ```
 We can call the above function like this:
 ```
-list[integer] numbers = [1, 2, 3]
+list[integer] numbers = [](1, 2, 3)
 printNumbers(numbers)
 //Prints 1 2 3 to the console
 ```
 But now we can't do this:
 ```
-list[decimal] numbers = [1.1, 2.2, 3.3]
+list[decimal] numbers = [](1.1, 2.2, 3.3)
 printNumbers(numbers)
 //Error no method printNumbers(list[decimal]) found
 ```
 Without generics, we would have to define a new function for each type we want to be able to print, but we can easily generify the above function like this:
 ```
-printNumbers[T & Number](list[T] numbers):
+function printNumbers[T < Number](list[T] numbers):
     for [T number] in numbers:
         print number
 ```
-Since integer and decimal both have the trait number, they both match the requirements of the generic function. We can reger to this generig type now as T. T is just the standard first generic type name people use in generics, but this can be any identifier you choose, though we encourage you capitalize them and industry standard is just a single letter most of the time.
+Since integer and decimal both have the trait Number, they both match the requirements of the generic function. We can refer to this generic type now as T. T is just the standard first generic type name people use in generics, but this can be any identifier you choose, though we encourage you capitalize them and industry standard is just a single letter most of the time.
 
 Now that covers how to match a single trait, but what if we want to match multiple traits or even match a class that extends a specific parent class? lets go back to our animal example:
 ```
@@ -997,16 +1014,16 @@ class Cage[T < Animal & MakesSound]:
     kickCage():
         print "kicking cage..."
         animal.makeSound()
-        print "The {this.name} didn't like that, shame on you!"
+        print "The {animal.name} didn't like that, shame on you!"
 ```
-Now any animal that makes a sound can be put in a cage, and when you kick the cage you get notified about how horrible of a person you are. Note that any fields defined on the clas you are extending in your generic constraint are accessible if they are not marked as private, and any methods from the class or traits you constrain with are also accessible if they are not private.
+Now any animal that makes a sound can be put in a cage, and when you kick the cage you get notified about how horrible of a person you are. Note that any fields defined on the class you are extending in your generic constraint are accessible if they are not marked as private, and any methods from the class or traits you constrain with are also accessible if they are not private.
 
 Note that your constraint can only have one super class and as many traits as you want. ``class Cage[T < ParentClass & Trait1 & Trait2 & EtcTraits]:`` If you do not need to access any fields or methods from any parent class or traits you don't have to constrain it, see example below:
 ```
 function returnOddIndexedItems[T](list[T] items):
     list[T] oddIndexedItems = []
-    for [integer i] in 1..items.length:
-        if i % 2 == 0: oddIndexedItems.add(items[i])
+    for [integer i] in 0..items.size - 1:
+        if i % 2 != 0: oddIndexedItems.add(items[i])
     return oddIndexedItems
 ```
 
@@ -1058,7 +1075,7 @@ Asynchronous execution is a way to allow the execution of code to continue while
 
 Consider the following function and event:
 ```
-function getPlayerDataFromDatabase(id playerID) -> Player:
+function getPlayerDataFromDatabase(integer id) -> Player:
   return ...
 
 on PlayerJoinedEvent(Player player):
@@ -1068,7 +1085,7 @@ on PlayerJoinedEvent(Player player):
 ```
 In this example the function getPlayerDataFromDatabase will block execution of anything else until it returns. This can be a problem if the function takes a long time to complete, as it will prevent other code from running. To avoid this, you can use asynchronous execution to allow the function to run in the background while other code continues to execute.
 ```
-async function getPlayerDataFromDatabase(id playerID) -> Player:
+async function getPlayerDataFromDatabase(integer id) -> Player:
   return ...
 ```
 Then in the event listener we can do:
@@ -1129,7 +1146,7 @@ await (Data data) timeout 10s:
 default:
     data = defaultData
 ```
-By default, there is no timeout, and any values sucessfully evaluated within the timeout specified will be returned by their evaluated values, if you want an all-or-nothing timeout, add `all` to the async block. This will cause all values be assigned their default value if a timeout is reached:
+By default, there is no timeout, and any values successfully evaluated within the timeout specified will be returned by their evaluated values, if you want an all-or-nothing timeout, add `all` to the await block. This will cause all values be assigned their default value if a timeout is reached:
 ```
 await all (Data1 data1, Data2 data2) timeout 10s:
     data1 = getSomeData1()
@@ -1146,7 +1163,7 @@ default:
     data = defaultData
 catch (ErrorType1 error):
     //OR handle error here
-    print error:
+    print error
 catch (ErrorType2 error):
     pass //Ignore this type of error
 ```
