@@ -24,6 +24,11 @@ const integer e = 12
 var f = 10 // The compiler will replace with with `integer`
 const g = 12 // The compiler will replace with with `const integer`
 
+//The main entrypoint of a script is defined by the main keyword
+main:
+    sayHello()
+    doRandomThings(a: 12)
+
 // Functions are defined with the function keyword
 function sayHello():
     //Statement belonging to the block must be indented
@@ -64,7 +69,7 @@ function doRandomThings(integer a, integer b = 20):
     // Multi dimensional arrays are also supported
     list[integer][integer] twoDimensional = list[][]
 
-    for [integer i] in filled::
+    for [integer i] in filled:
         print(i):
 
     // Maps are cooler
@@ -746,6 +751,19 @@ enum HorizontalLayout(integer direction): //fields will be automatically generat
 print HorizontalLayout.LEFT.direction
 ```
 
+## Executing scripts
+The primary way to execute a script is through it's main entrypoint, however there are more than one entrypoint type. The next section goes over events, which are a special type of entrypoint that are dispatched by an embedded engine. The main entrypoint however is defined as follows:
+```
+main(string... arguments):
+    for [string arg] in arguments:
+        print arg
+```
+This takes in some console arguments and prints them to the console. If you don't have any console arguments, you can omit the parenthesis entirely.
+```
+main:
+    pass
+```
+
 ## Events
 Events are defined similarly to classes, but with the `event` keyword. Events typically have an "Event" suffix. Events can carry some data with them defined as fields, just like classes.
 ```
@@ -992,6 +1010,49 @@ function returnOddIndexedItems[T](list[T] items):
     return oddIndexedItems
 ```
 
+## Errors and handling them
+Errors are a way to signal that something went wrong. Sometimes this is expected, and sometimes it is not. When an error occurs, it is important to handle it in a way that makes sense for your program. There are two main ways to handle errors: using try-catch blocks or using error handling functions. First lets look at how to define your own error types and throw them when something goes wrong.
+
+Errors are a special type of class that can be thrown, we define them in nearly the same way as classes, but with the ``error`` keyword and no traits allowed.
+```
+error FileNotFound < Error: //All errors must extend some base error type, Error is the base error type
+    string path
+```
+While most of the time throwing errors is expected to exit the program, sometimes you want to handle errors gracefully. For functions that may result in an error, and that you want to prompt users to be able to gracefully handle those errors, you can mark a function as throwing one or many errors.
+```
+function readFile(string path) throws FileNotFound -> string:
+    if !fileExists(path: path):
+        throw FileNotFound(path: path)
+    else:
+        return "some data"
+```
+If you want to suggest handling multiple errors to your user you can define them in a box separated by bars.
+```
+function readFile(string path) throws [FileNotFound | IOException] -> string:
+    ...
+```
+As you can see, we can throw an error by calling the throw keyword. We can also mark a function as throwing an error by adding throws to the function definition. You don't have to mark the functio as throwing an error if the function handles the error internally. Marking it as throws means that the api expects the user to handle the error themselves. Let's look at how to do that with a try block:
+```
+try:
+    string fileContents = readFile(path: "somefile.txt")
+    print "file contents: {fileContents}"
+catch FileNotFound(string path):
+    print "File not found at path: {path}"
+```
+Note, not all errors need to be caught by uses in the try/catch block, if an error is not caught, it will be propagated up the call stack as normal.
+
+If you'd rather not use a try block you can instead use a try expression `try?` to get a Result[T, Error] object instead, where T is the return type of the function and E is an error being propagated by the function.
+```
+Result[string, Error] result = try? readFile(path: "a/path/to/a/file.txt")
+
+if result.isOk():
+    print "file contents: {result.ok()}"
+else:
+    match result.error():
+        default: //Or handle the errors seprately
+            print "error: {result.error()}"
+```
+
 ## Asynchronous execution
 Asynchronous execution is a way to allow the execution of code to continue while other code is being executed.
 
@@ -1001,7 +1062,7 @@ function getPlayerDataFromDatabase(id playerID) -> Player:
   return ...
 
 on PlayerJoinedEvent(Player player):
-    PlayerData playerData = getPlayerDataFromDatabase(player.id)
+    PlayerData playerData = getPlayerDataFromDatabase(id: player.id)
     
     print "Player {player.name} joined the server"
 ```
@@ -1014,14 +1075,14 @@ Then in the event listener we can do:
 ```
 on PlayerJoinedEvent(Player player):
     //The await keyword suspends execution of the current thread until the asynchronous function returns without stopping other actions
-    PlayerData playerData = await getPlayerDataFromDatabase(player.id)
+    PlayerData playerData = await getPlayerDataFromDatabase(id: player.id)
     
     print "Player {player.name} joined the server"
 ```
 Note that the return type of an asynchronous function is a special `Task[T]` type. So when a function is declared as asynchronous, the return type is automatically boxed into the `Task[T]` type. When you use the await keyword the value is automatically unboxed into the type of the function. This means you can do this:
 ```
 on PlayerJoinedEvent(Player player):
-    Task[PlayerData] task = getPlayerDataFromDatabase(player.id)
+    Task[PlayerData] task = getPlayerDataFromDatabase(id: player.id)
     PlayerData playerData = await task
     
     print "Player {player.name} joined the server"
@@ -1036,15 +1097,6 @@ async function saveGame():
 //Later
 launch saveGame()
 ```
-
-In the case where you want to explicity block the execution of the current thread until the async function returns, you can use the ``blocking`` keyword. This keyword also unboxes the value:
-```
-on PlayerJoinedEvent(Player player):
-    //Probably don't ever do this, but you can if you have a specific reason
-    PlayerData playerData = blocking getPlayerDataFromDatabase(player.id)
-    
-    print "Player {player.name} joined the server"
-```
 If an async function results in an error, the error will be propagated to the caller on the current thread.
 
 If you want to concurrently await multiple async functions, you can use an await block. Say you need to fetch data from multiple databases:
@@ -1055,17 +1107,17 @@ on PlayerJoinedEvent(Player player):
     //Creates all parameters as variables in the same scope as the await block
     await (Data1 data1, Data2 data2):
         //Note that you don't need to specify await on each function call, it is inferred by the compiler
-        data1 = getPlayerDataFromDatabase1(player.id)
-        data2 = getPlayerDataFromDatabase2(player.id)
+        data1 = getPlayerDataFromDatabase1(id: player.id)
+        data2 = getPlayerDataFromDatabase2(id: player.id)
   
     //Will suspend execution until await block above is complete
     print "{data1} and {data2}"
 ```
-There is also a similar `blocking` block which will block the current thread until the async functions return. Note that all of these expressions in this block are evaluated in parallel, and that the order of evaluation is not guaranteed. This is still faster than executing them sequentially, but does block the current thread until whichever function takes the longest to evaluate is complete.
+Note that all of these expressions in this block are evaluated in parallel, and that the order of evaluation is not guaranteed.
 
 Also note that not all functions in an await block or a blocking block need to be async functions.
 
-Await and blocking blocks also have a few other benefits, such as setting timeouts:
+Await blocks also have a few other benefits, such as setting timeouts:
 ```
 await (Data data) timeout 10s:
     data = getSomeData() //Will suspend execution for 10 seconds if getSomeData() does not return within that time.
@@ -1077,7 +1129,7 @@ await (Data data) timeout 10s:
 default:
     data = defaultData
 ```
-By default, there is no timeout, and any values sucessfully evaluated within the timeout specified will be returned by their evaluated values, if you want an all-or-nothing timeout, add `all` to the async or blocking block. This will cause all values be assigned their default value:
+By default, there is no timeout, and any values sucessfully evaluated within the timeout specified will be returned by their evaluated values, if you want an all-or-nothing timeout, add `all` to the async block. This will cause all values be assigned their default value if a timeout is reached:
 ```
 await all (Data1 data1, Data2 data2) timeout 10s:
     data1 = getSomeData1()
@@ -1086,7 +1138,7 @@ default:
     data1 = defaultData1
     data2 = defaultData2
 ```
-If any of the async functions in the await block or blocking block throw an error, you can catch it with a catch block:
+If any of the async functions in the await block throw an error, you can catch it with one or many catch blocks:
 ```
 await (Data data):
     data = getSomeData()
@@ -1098,10 +1150,4 @@ catch (ErrorType1 error):
 catch (ErrorType2 error):
     pass //Ignore this type of error
 ```
-The order of the default and catch blocks is not important, the only requirements is that the await or blocking block must be first.
-
-## TODO
-These are things that I believe the language would benefit from, but that I have not yet gotten around to defining:
-- results/errors/throw/exceptions
-- executing scripts (main and main(arguments)) do these have a return type for exit status?
-- async/await? or other strategy for handling async code?
+The order of the default and catch blocks is not important, the only requirements is that the await block must be first.
