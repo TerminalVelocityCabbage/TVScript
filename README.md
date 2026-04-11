@@ -2,6 +2,14 @@
 
 TVScript is a high-level, object-oriented, statically typed, game or mod scripting language. It uses an indentation-based syntax similar to languages like Python. Its goal is to be optimized for embedding into java game engines, but is licensed under the MIT license, so feel free to write a runtime for your language of choice. The language definition itself does not require that it be implemented in Java; that's just what I use.
 
+## Language Design Goals
+- **Fast** TVScript is designed to be fast and efficient. Eventually this language will be compiled to JVM bytecode, so it should run just as fast as Java.
+- **Easy to learn** TVScript is intended to be used as a beginner's language while being powerful enough that seasoned developers can still make useful and fast software.
+- **Easy to embed** TVScript is designed to be embedded into a game engine, but it's also usable as a standalone language.
+- **Easy to read while remaining concise** TVScript is designed to be readable by humans, it's language features are verbose where it matters and concise where possible.
+- **Strict and Safe** TVScript is designed as a strongly typed language, and aims to reduce runtime errors by warning the developer if they are doing something that is likely to cause problems.
+
+
 ## Example of TVScript
 Some people learn better by taking a look at the syntax directly, keep reading for more details.
 ```ts
@@ -31,14 +39,14 @@ main:
 
 // Functions are defined with the function keyword
 function sayHello():
-    //Statement belonging to the block must be indented
+    //Statements belonging to the block must be indented
     print "hello"
 
 // Functions can take in parameters and return a value
 function add(integer a, integer b) -> integer:
     return a + b
 
-//Functions can also have default values, but must be at the end of the parameter list
+//Function parameters can also have default values, this makes them optional as arguments
 function doRandomThings(integer a, integer b = 20):
     
     //Scope is limited to blocks
@@ -63,17 +71,17 @@ function doRandomThings(integer a, integer b = 20):
         a--
 
     // Lists are cool
-    list[integer] numbers = list[] //Empty array
-    list[integer] filled = list[](1, 2, 3)
+    list[integer] numbers = new list[] //Empty list
+    list[integer] filled = new list[](1, 2, 3)
     integer foo = filled[0] //sets a to 1
-    // Multi dimensional arrays are also supported
-    list[integer][integer] twoDimensional = list[][]
+    // Multi dimensional lists are also supported
+    list[integer][integer] twoDimensional = new list[][]
 
     for [integer i] in filled:
         print i
 
     // Maps are cooler
-    map[string|integer] employeeAges = map[]("brad":20, "samantha":21)
+    map[string|integer] employeeAges = new map[|]("brad": 20, "samantha": 21)
     integer bar = employeeAges["brad"] //sets bar to 20
 
     for [string name | integer age] in employeeAges:
@@ -366,7 +374,7 @@ decimal c = 5.0
 string d = "Some string"
 ```
 ### Inferred Types
-Variables can also have their types inferred using the `var` keyword, meaning that if no type is specified, the type will be inferred from the value assigned to the variable. The type of the variable cannot be changed once it is defined event if the type is inferred. The following is equivalent to the definitions above.
+Variables can also have their types inferred using the `var` keyword, meaning that if no type is specified, the type will be inferred from the value assigned to the variable. The type of the variable cannot be changed once it is defined even if the type is inferred. The following is equivalent to the definitions above.
 ```
 var a = true
 var b = 4
@@ -403,15 +411,15 @@ something: print "hello"
 Lists are a generic sequence of object or value types including other lists or maps. Lists are always indexed starting at 0. Negative indices count from the end.
 To define a list you use the `list[type]` syntax.
 ```
-list[integer] numbersE = [] //Create a totally empty array
-var numbers = [] //ERROR, unknown type
-list[integer] numbers = [10] //Initial size of 10 none value placeholders
-list[integer] filled = [](1, 4, 5, 12, 12) //init the list with some known start values
+list[integer] numbersE = new list[] //Create a totally empty list
+var numbers = new list[] //ERROR, unknown type
+list[integer] numbers = new list[10] //Initial size of 10 none value placeholders
+list[integer] filled = new list[](1, 4, 5, 12, 12) //init the list with some known start values
 ```
 ### Accessing and Assigning Values
 To access a value in a list, you can index it with square brackets.
 ```
-list[integer] integerList = [](1, 2, 3, 4, 5)
+list[integer] integerList = new list[](1, 2, 3, 4, 5)
 
 integer firstElement = integerList[0] //sets firstElement to 1
 integer lastElement = integerList[-1] //sets lastElement to 5
@@ -421,15 +429,15 @@ integerList[-1] = 15 //List is now (10, 2, 3, 4, 15)
 ```
 ### Properties of lists
 ```
-var exampleList = [](1, 2, 3, 4)
+var exampleList = new list[](1, 2, 3, 4)
 
-integer size = exampleList.size //sets length to 4
+integer size = exampleList.size //sets size to 4
 ```
 ### List transformations
 ```
-list[integer] example = [](1, 2, 3, 4, 5)
+list[integer] example = new list[](1, 2, 3, 4, 5)
 
-//You can't set an element in an array if it doesn't exist
+//You can't set an element in a list if it doesn't exist
 example[5] = 6 //error
 
 //You can add an element to a list like this
@@ -454,7 +462,7 @@ example.reverse() //sets example to (5, 4, 3, 2, 1)
 boolean contains = example.contains(5) //sets contains to true
 
 //You can obtain sublists from a list
-list[integer] example2 = [](1, 2, 3, 4, 5)
+list[integer] example2 = new list[](1, 2, 3, 4, 5)
 list[integer] sublist = example2[1..3] //sets sublist to (2, 3, 4)
 list[integer] sublist2 = example2[1..] //sets sublist2 to (2, 3, 4, 5)
 list[integer] sublist3 = example2[..3] //sets sublist3 to (1, 2, 3, 4)
@@ -465,8 +473,8 @@ Maps are a generic key value pairing of object or value types. You define a map 
 
 ### Creating maps
 ```
-map[string|integer] employeeAgesE = [|] //Create and empty map
-map[string|integer] employeeAges = [|]("brad": 20, "samantha": 21, "craig": 80) //Some initial values
+map[string|integer] employeeAgesE = new map[|] //Create and empty map
+map[string|integer] employeeAges = new map[|]("brad": 20, "samantha": 21, "craig": 80) //Some initial values
 ```
 ### Accessing and Assigning Values
 ```
@@ -570,22 +578,12 @@ function add(integer a, integer b) -> integer:
   return a + b
 ```
 If no return type is specified, the function is assumed to return `void`. You can specify this as the return type if you feel so inclined, but it is not required. In our earlier example: ``function greet(string name):`` is equivalent to ``function greet(string name) -> void:``.
-### Variable Parameters
-You can define functions that take in a variable number of parameters by using the `...` syntax.
-```
-function addAll(integer... numbers) -> integer:
-  integer sum = 0
-  for [integer num] in numbers:
-    sum += num
-  return sum
-```
 ### Calling functions
 You call a function by name
 ```
 sayHello() //Prints "hello" to the console
 greet(name: "keith") //Prints "greetings keith" to the console
 var sum = add(a: 10, b: 20) //sets sum to 30
-var sum2 = addAll(numbers: [](10, 20, 30)) //sets sum2 to 60
 ```
 
 ## Classes
@@ -641,9 +639,9 @@ type vector2d: //type names are usually lowercase to differentiate them from cla
 ```
 By itself, this definition doesn't provide many benefits aside from how they can be initialized. You can initialize a type like this:
 ```
-vector2d v = vector2d(x: 10, y: 10)
+vector2d v = new vector2d(x: 10, y: 10)
 ```
-Since a type is not an object, but a multi-part value instead, there is no `new` keyword to create it. Note that type fields are all constants and cannot be modified. That's where operator overloading comes in.
+You initialize a type using the `new` keyword, just like a class. Note that type fields are all constants and cannot be modified. That's where operator overloading comes in.
 ### Operator Overloading
 Operator overloading allows you to define custom behavior for operators like `+`, `-`, `*`, `/`, and more. This is done by defining methods with special names that correspond to the operator. For example, to overload the `+` operator, you would define a method named `add` that takes in some arguments and returns a value like you'd expect. To define an operator overload you need to prefix a normal method name by the ``operator`` keyword. All operator overload methods have a `left` and a `right` parameter of the same type as the type and returns the same type as well.
 ```
@@ -652,17 +650,17 @@ type vector2d:
     decimal y
     
     operator add(vector2d left, vector2d right) -> vector2d:
-        return vector2d(x: left.x + right.x, y: left.y + right.y)
+        return new vector2d(x: left.x + right.x, y: left.y + right.y)
 
     //You don't need to specify the parameter types or the return type for operator methods, it's inferred by the compiler
     operator subtract(left, right):
-        return vector2d(x: left.x - right.x, y: left.y - right.y)
+        return new vector2d(x: left.x - right.x, y: left.y - right.y)
 ```
 Now you can do things like:
 ```
-vector2d v1 = vector2d(x: 10, y: 10)
-vector2d v2 = vector2d(x: 5, y: 5)
-vector2d sum = v1 + v2 //results in vector2d(x: 15, y: 15)
+vector2d v1 = new vector2d(x: 10, y: 10)
+vector2d v2 = new vector2d(x: 5, y: 5)
+vector2d sum = v1 + v2 //results in new vector2d(x: 15, y: 15)
 //However in our above definition you can't do:
 vector2d div = v1 / v2 //error, unefined operation (no operator method defined for "/" on type "vector2d")
 ```
@@ -753,7 +751,7 @@ if billy instanceof Dude -> dudeBilly: //Creates a new variable dudeBilly of typ
 Enumerations are what they describe, a set list of allowable values and potentially some associated data
 ```
 enum ServerStatus:
-  OFFLINE
+  OFFLINE //Enumeration fields are always capitalized
   ONLINE
 
 if getServerStatus() == ServerStatus.OFFLINE:
@@ -772,7 +770,7 @@ print HorizontalLayout.LEFT.direction
 ## Executing scripts
 The primary way to execute a script is through it's main entrypoint, however there are more than one entrypoint type. The next section goes over events, which are a special type of entrypoint that are dispatched by an embedded engine. The main entrypoint however is defined as follows:
 ```
-main(string... arguments):
+main(list[string] arguments):
     for [string arg] in arguments:
         print arg
 ```
@@ -783,59 +781,47 @@ main:
 ```
 
 ## Events
-Events are defined similarly to classes, but with the `event` keyword. Events typically have an "Event" suffix. Events can carry some data with them defined as fields, just like classes.
+Events are defined similarly to the main entrypoint, but with the `event` keyword. Events typically have an "Event" suffix. Events can carry some data with them defined as fields, just like classes.
 ```
 event PlayerJoinedEvent:
   Player player
 ```
-Events do not really get instantiated; they get dispatched immediately to any listeners or entry points that listen to them. dispatch an event with the dispatch keyword
+Events do not need the `new` keyword and are dispatched immediately to any listeners or entry points. Dispatch an event with the `dispatch` keyword.
 ```
 dispatch PlayerJoinedEvent(player: aPlayerObject)
 ```
-Events acts as a sort of entrypoint to the script, and can be listened to by defining a block in the root of the script using the `on` keyword. Any data associated wit the event that you want to use in your event must be specified in the event definition.
+Events act as a sort of entrypoint to the script, and can be listened to by defining a block in the root of the script using the `on` keyword. Any data associated with the event that you want to use in your event must be specified in the event definition.
 ```
 on PlayerJoinedEvent(Player player): //parameter names must match the names of the fields in the event definition
   print "Welcome to the server {player.name}"
 ```
-Game engines are encouraged to define their own events that are dispatched by the engine and can be listened to by mods.
+Game engines are encouraged to define their own events that are dispatched by the engine and can be listened to by scripts.
 ### Pattern matching in Events
 Events can be dispatched with a pattern match. This lets you filter before any code in the event block is executed.
 
-Let's take a player death event, maybe you only want to listen to deaths from a specific cause. Just clarify the event field with a know value that you're searching for, and the block of code will only be executed if the event matches that value.
-```
-class Player:
-    string name
-    ...
-
-enum DeathReason:
-    STABBED
-    SHOT
-    SOMETHING_ELSE
-
-on PlayerDeathEvent(Player player, DeathReason reason: DeathReason.STABBED):
-    print "{player.name} was killed by a knife!"
-```
-In a more complex example, you might want to match a field of an event parameter.
+Let's take a player death event, maybe you only want to listen to deaths from a specific cause. Just clarify the event field with a known value that you're searching for, and the block of code will only be executed if the event matches that value.
 ```
 class Player:
     string name
     integer level
     ...
 
-enum DeathReason: ...
-  
+enum DeathReason:
+    STABBED
+    SHOT
+    SOMETHING_ELSE
+    
 class Cause:
     DeathReason reason
     Player killer
     ...
 
-//Note that you don't need to specify the parameter names in field matching expressions, it's inferred by the compiler
-on PlayerDeathEvent(Player player, Cause cause: reason == DeathReason.STABBED):
+on PlayerDeathEvent(Player player, Cause cause: cause.reason == DeathReason.STABBED):
     print "{player.name} was killed by a knife!"
 ```
 You can also chain together multiple expressions as long as they can evaluate to a boolean.
 ```
-on PlayerDeathEvent(Player player, Cause cause: reason == DeathReason.STABBED && killer.level < 10):
+on PlayerDeathEvent(Player player, Cause cause: cause.reason == DeathReason.STABBED && cause.killer.level < 10):
     print "{player.name} was killed by a knife by {cause.killer.name}, that's embarrasing since they're only level {cause.killer.level}"
 ```
 
@@ -847,11 +833,11 @@ annotation EditorTooltip:
 
 //Will use the default value for the tooltip
 @EditorTooltip
-class vector2d:
+type vector2d:
   ...
 
 @EditorTooltip("Represents a 3d point in world space")
-class vector3d:
+type vector3d:
   ...
 ```
 
@@ -907,19 +893,19 @@ const squareFunction = function square(integer num) -> integer:
 Functions can be parameters of other functions
 ```
 function apply(list[integer] numbers, function funcArg(integer num) -> integer):
-    list[integer] newNumbers = []
+    list[integer] newNumbers = new list[]
     for [integer num1] in numbers:
         newNumbers.add(funcArg(num: num1))
     return newNumbers
 ```
 Functions can be passed as arguments to other functions
 ```
-list[integer] numbers = [](1, 2, 3, 4)
+list[integer] numbers = new list[](1, 2, 3, 4)
 list[integer] squareNumbers = apply(numbers: numbers, funcArg: squareFunction) //sets squareNumbers to (1, 4, 9, 16)
 ```
 Optionally, you can pass an inline function as a parameter as long as it is a single statement. Inline functions are not required to be named.
 ```
-list[integer] numbers = [](1, 2, 3, 4)
+list[integer] numbers = new list[](1, 2, 3, 4)
 list[integer] squareNumbers = apply(numbers: numbers, funcArg: (integer num) -> num * num) //sets squareNumbers to (1, 4, 9, 16)
 ```
 Functions can be defined inside other blocks or functions, their scope is limited to the block they are defined in.
@@ -930,7 +916,7 @@ function squareList(list[integer] numbers) -> list[integer]:
     function square(integer num) -> integer:
         return num * num
     
-    list[integer] newNumbers = []
+    list[integer] newNumbers = new list[]
     for [integer num] in numbers: 
         newNumbers.add(square(num))
         
@@ -946,7 +932,7 @@ const result = double(x: 5) // 10
 ```
 You can store functions in maps and lists
 ```
-map[string | (integer num) -> integer] operations = [|](
+map[string | (integer num) -> integer] operations = new map[|](
   "square": squareFunction, //Function variable
   "double": (integer num) -> integer: return num * 2 //Inline function
 )
@@ -965,13 +951,13 @@ function printNumbers(list[integer] numbers):
 ```
 We can call the above function like this:
 ```
-list[integer] numbers = [](1, 2, 3)
+list[integer] numbers = new list[](1, 2, 3)
 printNumbers(numbers)
 //Prints 1 2 3 to the console
 ```
 But now we can't do this:
 ```
-list[decimal] numbers = [](1.1, 2.2, 3.3)
+list[decimal] numbers = new list[](1.1, 2.2, 3.3)
 printNumbers(numbers)
 //Error no method printNumbers(list[decimal]) found
 ```
@@ -1021,7 +1007,7 @@ Now any animal that makes a sound can be put in a cage, and when you kick the ca
 Note that your constraint can only have one super class and as many traits as you want. ``class Cage[T < ParentClass & Trait1 & Trait2 & EtcTraits]:`` If you do not need to access any fields or methods from any parent class or traits you don't have to constrain it, see example below:
 ```
 function returnOddIndexedItems[T](list[T] items):
-    list[T] oddIndexedItems = []
+    list[T] oddIndexedItems = new list[]
     for [integer i] in 0..items.size - 1:
         if i % 2 != 0: oddIndexedItems.add(items[i])
     return oddIndexedItems
@@ -1032,28 +1018,28 @@ Errors are a way to signal that something went wrong. Sometimes this is expected
 
 Errors are a special type of class that can be thrown, we define them in nearly the same way as classes, but with the ``error`` keyword and no traits allowed.
 ```
-error FileNotFound < Error: //All errors must extend some base error type, Error is the base error type
+error FileNotFoundError < Error: //All errors must extend some base error type, Error is the base error type
     string path
 ```
 While most of the time throwing errors is expected to exit the program, sometimes you want to handle errors gracefully. For functions that may result in an error, and that you want to prompt users to be able to gracefully handle those errors, you can mark a function as throwing one or many errors.
 ```
-function readFile(string path) throws FileNotFound -> string:
+function readFile(string path) throws FileNotFoundError -> string:
     if !fileExists(path: path):
-        throw FileNotFound(path: path)
+        throw FileNotFoundError(path: path)
     else:
         return "some data"
 ```
 If you want to suggest handling multiple errors to your user you can define them in a box separated by bars.
 ```
-function readFile(string path) throws [FileNotFound | IOException] -> string:
+function readFile(string path) throws [FileNotFoundError | IOException] -> string:
     ...
 ```
-As you can see, we can throw an error by calling the throw keyword. We can also mark a function as throwing an error by adding throws to the function definition. You don't have to mark the functio as throwing an error if the function handles the error internally. Marking it as throws means that the api expects the user to handle the error themselves. Let's look at how to do that with a try block:
+As you can see, we can throw an error by calling the throw keyword followed by the error constructor. We can also mark a function as throwing an error by adding throws to the function definition. You don't have to mark the function as throwing an error if the function handles the error internally. Marking it as throws means that the api expects the user to handle the error themselves. Let's look at how to do that with a try block:
 ```
 try:
     string fileContents = readFile(path: "somefile.txt")
     print "file contents: {fileContents}"
-catch FileNotFound(string path):
+catch FileNotFoundError(string path):
     print "File not found at path: {path}"
 ```
 Note, not all errors need to be caught by uses in the try/catch block, if an error is not caught, it will be propagated up the call stack as normal.
