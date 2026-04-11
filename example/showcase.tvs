@@ -1,0 +1,132 @@
+// Everything after a "//" is a comment.
+// Tripple slash marks a block comment. Block comments must be closed with another tripple slash.
+///
+Like this
+///
+// A file is a script
+
+// Optional imports for logic in other scripts
+import path.to.script.OtherScript
+
+// Variables are defined with a type first, then the name, then optionally a value
+integer a = 10
+boolean b = true
+decimal c = 1.23
+string d = "hello"
+
+// constant variables are defined with the const keyword
+const integer e = 12
+
+// inferred types are also allowed
+var f = 10 // The compiler will replace with with `integer`
+const g = 12 // The compiler will replace with with `const integer`
+
+//The main entrypoint of a script is defined by the main keyword
+main:
+    sayHello()
+    doRandomThings(a: 12)
+
+// Functions are defined with the function keyword
+function sayHello():
+    //Statements belonging to the block must be indented
+    print "hello"
+
+// Functions can take in parameters and return a value
+function add(integer a, integer b) -> integer:
+    return a + b
+
+//Function parameters can also have default values, this makes them optional as arguments
+function doRandomThings(integer a, integer b = 20):
+
+    //Scope is limited to blocks
+    const integer localConst = 5
+
+    //conditionals are allowed
+    if a < localConst:
+        print a
+    else if b > 5:
+        print b
+    else:
+        print "fail"
+
+    //You can also use a range for loops
+    for 0..10:
+        print "printing"
+
+    for [integer i] in 0..10:
+        print i
+
+    while a != 0:
+        a--
+
+    // Lists are cool
+    list[integer] numbers = new list[] //Empty list
+    list[integer] filled = new list[](1, 2, 3)
+    integer foo = filled[0] //sets a to 1
+    // Multi dimensional lists are also supported
+    list[integer][integer] twoDimensional = new list[][]
+
+    for [integer i] in filled:
+        print i
+
+    // Maps are cooler
+    map[string|integer] employeeAges = new map[|]("brad": 20, "samantha": 21)
+    integer bar = employeeAges["brad"] //sets bar to 20
+
+    for [string name | integer age] in employeeAges:
+        // String formatting
+        print "{name} is {age} years old"
+
+    match b:
+        3: print "three"
+        4:
+            print "four"
+            print "my lucky number!"
+        5..10: print "five thru ten"
+        default: print "no match"
+
+// Classes
+class Animal:
+    const string name
+
+    // You can optionally define a constructor to do some initialization
+    constructor():
+        this.name = "Animal"
+
+enum Color:
+    RED
+    GREEN
+    BLUE
+
+// Traits
+trait EmitsSound:
+    default makeSound():
+        print "beep"
+trait Flies:
+    fly()
+
+// Inheritance
+class Dog < Animal [EmitsSound, Flies]:
+
+    constructor(string breed):
+        super(name: breed) // Use super to call parent constructors
+
+    //Override default behavior with the override keyword
+    override makeSound():
+        super.makeSound() // Call parent method (not usually in this context, but like this)
+        print "woof"
+
+    //Implement undefined behaviour with the same keyword
+    override fly():
+        dispatch DeathEvent(deathMessage: "dogs can't fly")
+
+@EditorHint("This is a hint that appears in the editor")
+event DeathEvent:
+    string deathMessage
+    Color messageColor = Color.RED
+
+on DeathEvent(string deathMessage):
+    print deathMessage
+
+annotation EditorHint:
+    string hint

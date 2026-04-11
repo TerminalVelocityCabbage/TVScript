@@ -14,6 +14,10 @@ TVScript is a high-level, object-oriented, statically typed, game or mod scripti
 Some people learn better by taking a look at the syntax directly, keep reading for more details.
 ```ts
 // Everything after a "//" is a comment.
+// Tripple slash marks a block comment. Block comments must be closed with another tripple slash.
+///
+Like this
+///
 // A file is a script
 
 // Optional imports for logic in other scripts
@@ -151,6 +155,7 @@ The following words are reserved and cannot be used as identifiers:
 | Keyword | Description |
 | --- | --- |
 | `import` | Imports logic from another script |
+| `main` | Defines the main entrypoint of a script |
 | `public` | Public visibility modifier |
 | `private` | Private visibility modifier |
 | `protected` | Protected visibility modifier |
@@ -234,6 +239,15 @@ The following operators are supported:
 | `x *= y` | Multiply and assign |
 | `x /= y` | Divide and assign |
 | `x %= y` | Modulus and assign |
+| `x++` | Increment |
+| `x--` | Decrement |
+| `x .. y` | Range |
+| `|` | Separator (e.g., in maps or match patterns) |
+| `[` `]` | Generic types or indexing |
+| `{` `}` | String interpolation or block-like data |
+| `:` | Block definition |
+| `,` | Separator |
+| `->` | Function return type separator |
 
 ## Literals
 The following literals are supported:
@@ -1210,13 +1224,12 @@ catch (ErrorType2 error):
 The order of the default and catch blocks is not important, the only requirements is that the await block must be first.
 
 ## Pass by Value and Pass by Reference
-In TVScript, everything is pass-by-value. This means that when you pass a variable to a function, a copy of the value is made and passed to the function.
-
-However, for objects (instances of a class), the "value" being passed is actually a reference (or pointer) to that object in memory. This behavior is similar to how Java handles object references.
+TVScript uses value semantics for primitives and types, but reference semantics for objects. 
 
 ### Types
 When passing primitive types like `integer`, `decimal`, `boolean`, `string`, or user defined types a change to the parameter inside the function does not affect the original variable.
 
+See the following example:
 ```
 function increment(integer x):
     x = x + 1
