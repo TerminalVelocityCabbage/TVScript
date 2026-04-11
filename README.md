@@ -181,9 +181,11 @@ The following words are reserved and cannot be used as identifiers:
 | `this` | The current instance of the class |
 | `super` | Calls the parent constructor or method |
 | `override` | Overrides a method |
-| `instanceof` | Checks if an object is an instance of a type |
+| `is` | Checks if an object is an instance of a type or object |
+| `has` | Checks if an object has a trait |
 | `as` | Cast a value to a different type |
 | `list` | Defines a list |
+| `set` | Defines a set |
 | `map` | Defines a map |
 | `enum` | Defines an enum |
 | `event` | Defines an event |
@@ -210,7 +212,7 @@ The following operators are supported:
 | `x.attribute` | Attribute access |
 | `foo()` | Function call |
 | `x.method()` | Method call |
-| `x instanceof y` | Checks if `x` is an instance of `y` |
+| `x is y` | Checks if `x` is an instance of `y` |
 | `x * y` | Multiplication |
 | `x / y` | Division |
 | `x % y` | Remainder (Modulus) |
@@ -327,6 +329,7 @@ The following types are built in:
 - `decimal`
 - `string`
 - `list[type]`
+- `set[type]`
 - `map[keyType|valueType]`
 - `range`
 - `function`
@@ -355,6 +358,9 @@ string; yay!
 
 ### list[type]
 The `list[type]` type is used to represent a list of values of a specific type. More on this later.
+
+### set[type]
+The `set[type]` type is used to represent a set of unique values of a specific type. More on this later.
 
 ### map[keyType|valueType]
 The `map[keyType|valueType]` type is used to represent a map of key value pairs of a specific type. More on this later.
@@ -468,6 +474,39 @@ list[integer] sublist2 = example2[1..] //sets sublist2 to (2, 3, 4, 5)
 list[integer] sublist3 = example2[..3] //sets sublist3 to (1, 2, 3, 4)
 ```
 
+## Sets
+Sets are a generic collection of unique object or value types. Sets do not have a defined order and cannot contain duplicate elements.
+To define a set you use the `set[type]` syntax.
+```
+set[integer] numbersE = new set[] //Create an empty set
+set[integer] filled = new set[](1, 4, 5, 12, 12) //init the set with some known start values, duplicates are ignored
+```
+### Properties of sets
+```
+var exampleSet = new set[](1, 2, 3, 4)
+
+integer size = exampleSet.size //sets size to 4
+```
+### Set transformations
+```
+set[integer] example = new set[](1, 2, 3, 4, 5)
+
+//You can add an element to a set
+example.add(6) //sets example to (1, 2, 3, 4, 5, 6)
+
+//Adding an existing value has no effect
+example.add(6) //example remains (1, 2, 3, 4, 5, 6)
+
+//You can remove an element from a set
+example.remove(5) //sets example to (1, 2, 3, 4, 6)
+
+//You can clear a set
+example.clear() //sets example to ()
+
+//You can determine if a set contains a specific value
+boolean contains = example.contains(6) //sets contains to true
+```
+
 ## Maps
 Maps are a generic key value pairing of object or value types. You define a map similarly to a list, but you need two types `map[keyType | valueType]`
 
@@ -506,7 +545,7 @@ Loops can also be used as expressions to assign values to variables.
 ```
 integer sum = 0
 sum = for [integer i] in 0..10: sum += i
-print sum //prints 55
+print sum //prints 10
 
 var sum2 = 0
 sum2 = while sum2 < 10: sum2 += 1
@@ -515,6 +554,11 @@ print sum2 //prints 10
 ### Iterating over a list
 ```
 for [string value] in someList:
+    print value
+```
+### Iterating a set
+```
+for [string value] in someSet:
     print value
 ```
 ### Iterating a map
@@ -736,15 +780,23 @@ class Gurl < Human:
 
 Human billy = new Dude(name: "billy")
 Human sally = new Gurl(name: "sally")
-boolean isHuman = billy instanceof Human //true because dude extends human
+boolean isHuman = billy is Human //true because dude extends human
 billy.sup() //ERROR because the variable billy is of type Human; not Dude
 
 Dude dudeVar = billy as Dude
 dudeVar.sup() //prints "sup"
 
 //Alternatively you can do this
-if billy instanceof Dude -> dudeBilly: //Creates a new variable dudeBilly of type Dude
+if billy is Dude -> dudeBilly: //Creates a new variable dudeBilly of type Dude
   dudeBilly.sup() //prints "sup"
+```
+This works the same for traits with the 'has' operator:
+```
+class SomeThing < [ATrait]:
+    ...
+    
+function checkHasTrait(object obj) -> boolean:
+    return obj has ATrait
 ```
 
 ## Enumerations (enum)
@@ -930,7 +982,7 @@ function makeMultiplier(integer factor) -> (integer x) -> integer:
 const double = makeMultiplier(factor: 2)
 const result = double(x: 5) // 10
 ```
-You can store functions in maps and lists
+You can store functions in maps, sets and lists
 ```
 map[string | (integer num) -> integer] operations = new map[|](
   "square": squareFunction, //Function variable
@@ -993,9 +1045,9 @@ Let's implement a generic cage class which can house any animal that makes sound
 ```
 class Cage[T < Animal & MakesSound]:
     
-    Animal animal
+    T animal
     
-    constructor(Animal animal): this.animal = animal
+    constructor(T animal): this.animal = animal
     
     kickCage():
         print "kicking cage..."
@@ -1092,7 +1144,7 @@ on PlayerJoinedEvent(Player player):
 ```
 If a task is never awaited, you can use the methods defined on `Task[T]` like any other class.
 
-If there is no return value, or you want to just fire and forget the task, you can use the `launch` keyword instead of `await`. This will still execute the function in a non-blocking manner, but doesn't suspend the function or anything like that.
+If there is no return value, or you want to just fire and forget the task, you can use the `launch` keyword instead of `await`. This will still execute the function in a non-blocking manner but doesn't suspend the function or anything like that.
 ```
 async function saveGame():
     ...
@@ -1118,7 +1170,7 @@ on PlayerJoinedEvent(Player player):
 ```
 Note that all of these expressions in this block are evaluated in parallel, and that the order of evaluation is not guaranteed.
 
-Also note that not all functions in an await block or a blocking block need to be async functions.
+Also note that not all functions in an await block need to be async functions.
 
 Await blocks also have a few other benefits, such as setting timeouts:
 ```
@@ -1129,8 +1181,10 @@ In the above example if getSomeData() does not return within 10 seconds, `data` 
 ```
 await (Data data) timeout 10s:
     data = getSomeData()
+    data2 = getSomeMoreData()
 default:
     data = defaultData
+    //Note not all values need to be assigned a default value, if getSomeMoreData() does not return within 10 seconds, data2 will be set to none.
 ```
 By default, there is no timeout, and any values successfully evaluated within the timeout specified will be returned by their evaluated values, if you want an all-or-nothing timeout, add `all` to the await block. This will cause all values be assigned their default value if a timeout is reached:
 ```
@@ -1141,11 +1195,11 @@ default:
     data1 = defaultData1
     data2 = defaultData2
 ```
-If any of the async functions in the await block throw an error, you can catch it with one or many catch blocks:
+If any of the async functions in the await block throw an error, you can catch it with a try await block:
 ```
-await (Data data):
+try await (Data data):
     data = getSomeData()
-default:
+default: //Default still allowed
     data = defaultData
 catch (ErrorType1 error):
     //OR handle error here
