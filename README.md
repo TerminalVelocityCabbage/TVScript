@@ -1208,3 +1208,51 @@ catch (ErrorType2 error):
     pass //Ignore this type of error
 ```
 The order of the default and catch blocks is not important, the only requirements is that the await block must be first.
+
+## Pass by Value and Pass by Reference
+In TVScript, everything is pass-by-value. This means that when you pass a variable to a function, a copy of the value is made and passed to the function.
+
+However, for objects (instances of a class), the "value" being passed is actually a reference (or pointer) to that object in memory. This behavior is similar to how Java handles object references.
+
+### Types
+When passing primitive types like `integer`, `decimal`, `boolean`, `string`, or user defined types a change to the parameter inside the function does not affect the original variable.
+
+```
+function increment(integer x):
+    x = x + 1
+
+integer a = 5
+increment(x: a)
+print a // prints 5
+```
+To implement the above function, you'd need to do this:
+```
+function increment(integer x) -> integer:
+    return x + 1
+
+integer a = 5
+a = increment(x: a)
+print a // prints 6
+```
+
+### Object types
+When passing an object, you are passing the reference to that object by value. This means you can modify the contents of the object, and those changes will be reflected outside the function. However, reassigning the parameter to a new object will not affect the original reference.
+
+```
+class Counter:
+    integer count = 0
+
+function incrementCounter(Counter c):
+    c.count = c.count + 1
+
+function reassignCounter(Counter c):
+    c = new Counter()
+    c.count = 10
+
+Counter myCounter = new Counter()
+incrementCounter(c: myCounter)
+print myCounter.count // prints 1
+
+reassignCounter(c: myCounter)
+print myCounter.count // still prints 1
+```
