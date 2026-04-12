@@ -80,6 +80,7 @@ public class Scanner {
     private final Stack<Integer> indentLevels = new Stack<>();
     private boolean isAtLineStart = true;
     private int interpolationDepth = 0;
+    private boolean isScanningTripleQuotedString = false;
 
     public Scanner(String source) {
         this.source = source;
@@ -169,7 +170,18 @@ public class Scanner {
             case '%':
                 addToken(match('=') ? TokenType.PERCENT_EQUAL : TokenType.PERCENT);
                 break;
-            case '|': addToken(TokenType.PIPE); break;
+            case '|':
+                if (match('|')) {
+                    addToken(TokenType.OR);
+                } else {
+                    addToken(TokenType.PIPE);
+                }
+                break;
+            case '&':
+                if (match('&')) {
+                    addToken(TokenType.AND);
+                }
+                break;
             case '?': addToken(TokenType.QUESTION); break;
             case '@': addToken(TokenType.AT); break;
             case '!':
@@ -266,30 +278,36 @@ public class Scanner {
     }
 
     private void scanString() {
-        boolean isTripleQuoted = false;
-        if (peek() == '"' && peekNext() == '"') {
-            advance(); advance();
-            isTripleQuoted = true;
+        boolean isFirstPart = source.charAt(start) == '"';
+
+        if (isFirstPart) {
+            if (peek() == '"' && peekNext() == '"') {
+                advance(); advance();
+                isScanningTripleQuotedString = true;
+            } else {
+                isScanningTripleQuotedString = false;
+            }
         }
 
         while (!isAtEnd()) {
-            if (isTripleQuoted) {
+            if (isScanningTripleQuotedString) {
                 if (peek() == '"' && peekNext() == '"' && peekNextNext() == '"') {
                     advance(); advance(); advance();
-                    addToken(TokenType.STRING);
+                    addToken(TokenType.STRING, source.substring(start + (isFirstPart ? 3 : 0), current - 3));
+                    isScanningTripleQuotedString = false;
                     return;
                 }
             } else {
                 if (peek() == '"') {
                     advance();
-                    addToken(TokenType.STRING);
+                    addToken(TokenType.STRING, source.substring(start + (isFirstPart ? 1 : 0), current - 1));
                     return;
                 }
             }
 
             if (peek() == '{') {
                 // String interpolation
-                addToken(TokenType.STRING_PART);
+                addToken(TokenType.STRING_PART, source.substring(start + (isFirstPart ? (isScanningTripleQuotedString ? 3 : 1) : 0), current));
                 start = current;
                 advance(); // consume '{'
                 addToken(TokenType.LEFT_BRACE);
@@ -299,7 +317,7 @@ public class Scanner {
             }
 
             if (peek() == '\n') {
-                if (!isTripleQuoted) {
+                if (!isScanningTripleQuotedString) {
                     TVScript.error(line, "Unterminated string at line " + line);
                     return;
                 }
