@@ -1,5 +1,40 @@
 # TVScript Reference
 
+## Implementation Status (TODO List)
+Currently, the language is under heavy development. Below is the implementation status of the features outlined in this spec.
+
+### Core Implementation
+- [x] Basic Types (`integer`, `decimal`, `string`, `boolean`, `none`)
+- [x] Variable Definitions (`var`, `const`, and explicit type)
+- [x] Basic Expressions & Operators
+- [x] Indentation-based Block Scoping
+- [x] `if` / `else` Statements
+- [x] `print` & `pass` Statements
+- [x] Ternary Operator (`condition ? true : false`)
+- [x] String Interpolation (`"{expression}"`)
+- [ ] `while` & `for` Loops
+- [ ] `match` Statements
+- [ ] Functions & First-class functions
+- [ ] Classes & Objects
+- [ ] Inheritance & Traits
+- [ ] Types & Operator Overloading
+
+### Advanced Features
+- [ ] Built-in Collections (`list`, `set`, `map`)
+- [ ] Generics
+- [ ] Error Handling (`try` / `catch` / `throw`)
+- [ ] Async Execution (`async` / `await` / `launch`)
+- [ ] Events & Event Listeners (`event` / `on` / `dispatch`)
+- [ ] Annotations
+
+### Ecosystem & Runtime
+- [ ] Module System (`import`)
+- [ ] Script Visibility Modifiers
+- [ ] Main Entrypoints (`main`)
+- [ ] Bytecode Compilation (Currently Interpreted)
+
+---
+
 TVScript is a high-level, object-oriented, statically typed, game or mod scripting language. It uses an indentation-based syntax similar to languages like Python. Its goal is to be optimized for embedding into java game engines, but is licensed under the MIT license, so feel free to write a runtime for your language of choice. The language definition itself does not require that it be implemented in Java; that's just what I use.
 
 ## Language Design Goals
