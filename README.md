@@ -229,9 +229,9 @@ The following operators are supported:
 | `x >= y` | Greater than or equal to |
 | `x == y` | Equal to |
 | `x != y` | Not equal to |
-| `x && y` `x and y` | Logical AND |
-| `x || y` `x or y` | Logical OR |
-| `!` `not` | Logical NOT |
+| `x and y` | Logical AND |
+| `x or y` | Logical OR |
+| `!` | Logical NOT |
 | `condition ? trueExpression : falseExpression` | Ternary operator |
 | `x = y` | Assignment |
 | `x += y` | Add and assign |

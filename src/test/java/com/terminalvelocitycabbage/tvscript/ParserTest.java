@@ -33,7 +33,6 @@ class ParserTest {
     void testUnary() {
         assertEquals("(- 123)", print(parse("-123")));
         assertEquals("(! true)", print(parse("!true")));
-        assertEquals("(not false)", print(parse("not false")));
         assertEquals("(- (- 123))", print(parse("- -123")));
     }
     @Test
@@ -52,8 +51,6 @@ class ParserTest {
         assertEquals("(and true false)", print(parse("true and false")));
         assertEquals("(or true false)", print(parse("true or false")));
         assertEquals("(or (and a b) (and c d))", print(parse("a and b or c and d")));
-        assertEquals("(&& true false)", print(parse("true && false")));
-        assertEquals("(|| true false)", print(parse("true || false")));
     }
 
     @Test
@@ -73,12 +70,12 @@ class ParserTest {
     }
     @Test
     void testStringInterpolation() {
-        // "hello {name}!" -> ("hello " + name) + "!"
-        assertEquals("(+ (+ hello  name) !)", print(parse("\"hello {name}!\"")));
+        // "hello {name}!" -> (interpolation hello name !)
+        assertEquals("(interpolation hello  name !)", print(parse("\"hello {name}!\"")));
     }
     @Test
     void testComplexExpression() {
-        assertEquals("(|| (&& (== (+ 1 2) 3) (!= 4 5)) (group (> 6 7)))", 
-            print(parse("1 + 2 == 3 && 4 != 5 || (6 > 7)")));
+        assertEquals("(or (and (== (+ 1 2) 3) (!= 4 5)) (group (> 6 7)))", 
+            print(parse("1 + 2 == 3 and 4 != 5 or (6 > 7)")));
     }
 }

@@ -7,8 +7,10 @@ public abstract class Expression {
         R visitBinaryExpr(Binary expr);
         R visitGroupingExpr(Grouping expr);
         R visitLiteralExpr(Literal expr);
+        R visitLogicalExpr(Logical expr);
         R visitUnaryExpr(Unary expr);
-        // We'll add more as we go (e.g. Interpolation/Concatenation if needed)
+        R visitInterpolationExpr(Interpolation expr);
+        R visitVariableExpr(Variable expr);
     }
 
     public abstract <R> R accept(Visitor<R> visitor);
@@ -56,6 +58,23 @@ public abstract class Expression {
         }
     }
 
+    public static class Logical extends Expression {
+        public final Expression left;
+        public final Token operator;
+        public final Expression right;
+
+        public Logical(Expression left, Token operator, Expression right) {
+            this.left = left;
+            this.operator = operator;
+            this.right = right;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitLogicalExpr(this);
+        }
+    }
+
     public static class Unary extends Expression {
         public final Token operator;
         public final Expression right;
@@ -68,6 +87,32 @@ public abstract class Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitUnaryExpr(this);
+        }
+    }
+
+    public static class Variable extends Expression {
+        public final Token name;
+
+        public Variable(Token name) {
+            this.name = name;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitVariableExpr(this);
+        }
+    }
+
+    public static class Interpolation extends Expression {
+        public final java.util.List<Expression> expressions;
+
+        public Interpolation(java.util.List<Expression> expressions) {
+            this.expressions = expressions;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitInterpolationExpr(this);
         }
     }
 }

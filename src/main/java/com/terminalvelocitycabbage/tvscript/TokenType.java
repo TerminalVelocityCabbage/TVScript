@@ -28,7 +28,8 @@ public enum TokenType {
     OPERATOR, THIS, SUPER, OVERRIDE, IS, HAS, AS,
     LIST, SET, MAP, ENUM, EVENT, ON, DISPATCH, ANNOTATION,
     THROW, THROWS, TRY, CATCH, ASYNC, AWAIT, LAUNCH, ALL, TIMEOUT, PASS,
-    AND, OR, NOT, TRUE, FALSE,
+    // Logical operators
+    AND, OR, TRUE, FALSE,
 
     // Indentation and Newlines
     INDENT, DEDENT, NEWLINE,

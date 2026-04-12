@@ -1,5 +1,7 @@
 package com.terminalvelocitycabbage.tvscript;
 
+import com.terminalvelocitycabbage.tvscript.ast.Expression;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -11,6 +13,8 @@ import java.util.List;
 public class TVScript {
 
     static boolean hadError = false;
+    static boolean hadRuntimeError = false;
+    private static final Interpreter interpreter = new Interpreter();
 
     public static void main(String[] args) throws IOException {
         if (args.length > 1) {
@@ -28,6 +32,7 @@ public class TVScript {
         run(new String(bytes, Charset.defaultCharset()));
 
         if (hadError) System.exit(65);
+        if (hadRuntimeError) System.exit(70);
     }
 
     private static void runPrompt() throws IOException {
@@ -46,28 +51,13 @@ public class TVScript {
     private static void run(String source) {
         Scanner scanner = new Scanner(source);
         List<Token> tokens = scanner.scanTokens();
+        Parser parser = new Parser(tokens);
+        Expression expression = parser.parse();
 
-        if (tokens.isEmpty()) return;
+        // Stop if there was a syntax error.
+        if (hadError) return;
 
-        int currentLine = tokens.get(0).getLine();
-        boolean lineStarted = false;
-        for (Token token : tokens) {
-            if (token.getLine() != currentLine) {
-                if (lineStarted) System.out.println();
-                currentLine = token.getLine();
-                lineStarted = false;
-            }
-
-            if (token.getType() == TokenType.INDENT || token.getType() == TokenType.DEDENT) {
-                if (lineStarted) System.out.println();
-                System.out.println(token);
-                lineStarted = false;
-            } else {
-                System.out.print(token);
-                lineStarted = true;
-            }
-        }
-        if (lineStarted) System.out.println();
+        interpreter.interpret(expression);
     }
 
     static void error(int line, String message) {
@@ -80,6 +70,12 @@ public class TVScript {
         } else {
             report(token.getLine(), " at '" + token.getLexeme() + "'", message);
         }
+    }
+
+    static void runtimeError(RuntimeError error) {
+        System.err.println(error.getMessage() +
+                "\n[line " + error.token.getLine() + "]");
+        hadRuntimeError = true;
     }
 
     private static void report(int line, String where, String message) {

@@ -72,7 +72,6 @@ public class Scanner {
         keywords.put("pass", TokenType.PASS);
         keywords.put("and", TokenType.AND);
         keywords.put("or", TokenType.OR);
-        keywords.put("not", TokenType.NOT);
         keywords.put("true", TokenType.TRUE);
         keywords.put("false", TokenType.FALSE);
     }
@@ -126,7 +125,7 @@ public class Scanner {
                         // We closed an interpolation block, continue scanning the string
                         addToken(TokenType.RIGHT_BRACE);
                         start = current;
-                        scanString();
+                        scanString(false);
                         return;
                     }
                 }
@@ -171,16 +170,7 @@ public class Scanner {
                 addToken(match('=') ? TokenType.PERCENT_EQUAL : TokenType.PERCENT);
                 break;
             case '|':
-                if (match('|')) {
-                    addToken(TokenType.OR);
-                } else {
-                    addToken(TokenType.PIPE);
-                }
-                break;
-            case '&':
-                if (match('&')) {
-                    addToken(TokenType.AND);
-                }
+                addToken(TokenType.PIPE);
                 break;
             case '?': addToken(TokenType.QUESTION); break;
             case '@': addToken(TokenType.AT); break;
@@ -233,7 +223,7 @@ public class Scanner {
                 break;
 
             case '"':
-                scanString();
+                scanString(true);
                 break;
 
             default:
@@ -277,10 +267,8 @@ public class Scanner {
         isAtLineStart = false;
     }
 
-    private void scanString() {
-        boolean isFirstPart = source.charAt(start) == '"';
-
-        if (isFirstPart) {
+    private void scanString(boolean isStartOfFullString) {
+        if (isStartOfFullString) {
             if (peek() == '"' && peekNext() == '"') {
                 advance(); advance();
                 isScanningTripleQuotedString = true;
@@ -293,21 +281,21 @@ public class Scanner {
             if (isScanningTripleQuotedString) {
                 if (peek() == '"' && peekNext() == '"' && peekNextNext() == '"') {
                     advance(); advance(); advance();
-                    addToken(TokenType.STRING, source.substring(start + (isFirstPart ? 3 : 0), current - 3));
+                    addToken(TokenType.STRING, source.substring(start + (isStartOfFullString ? 3 : 0), current - 3));
                     isScanningTripleQuotedString = false;
                     return;
                 }
             } else {
                 if (peek() == '"') {
                     advance();
-                    addToken(TokenType.STRING, source.substring(start + (isFirstPart ? 1 : 0), current - 1));
+                    addToken(TokenType.STRING, source.substring(start + (isStartOfFullString ? 1 : 0), current - 1));
                     return;
                 }
             }
 
             if (peek() == '{') {
                 // String interpolation
-                addToken(TokenType.STRING_PART, source.substring(start + (isFirstPart ? (isScanningTripleQuotedString ? 3 : 1) : 0), current));
+                addToken(TokenType.STRING_PART, source.substring(start + (isStartOfFullString ? (isScanningTripleQuotedString ? 3 : 1) : 0), current));
                 start = current;
                 advance(); // consume '{'
                 addToken(TokenType.LEFT_BRACE);

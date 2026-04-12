@@ -50,7 +50,7 @@ class ScannerTest {
 
     @Test
     void testKeywords() {
-        Scanner scanner = new Scanner("import main public private protected mod var const integer decimal string boolean function return if else for while match default break continue print none class new trait type operator this super override is has as list set map enum event on dispatch annotation throw throws try catch async await launch all timeout pass and or not true false");
+        Scanner scanner = new Scanner("import main public private protected mod var const integer decimal string boolean function return if else for while match default break continue print none class new trait type operator this super override is has as list set map enum event on dispatch annotation throw throws try catch async await launch all timeout pass and or true false");
         List<Token> tokens = scanner.scanTokens();
 
         assertEquals(TokenType.IMPORT, tokens.get(0).type);
@@ -108,9 +108,8 @@ class ScannerTest {
         assertEquals(TokenType.PASS, tokens.get(52).type);
         assertEquals(TokenType.AND, tokens.get(53).type);
         assertEquals(TokenType.OR, tokens.get(54).type);
-        assertEquals(TokenType.NOT, tokens.get(55).type);
-        assertEquals(TokenType.TRUE, tokens.get(56).type);
-        assertEquals(TokenType.FALSE, tokens.get(57).type);
+        assertEquals(TokenType.TRUE, tokens.get(55).type);
+        assertEquals(TokenType.FALSE, tokens.get(56).type);
     }
 
     @Test

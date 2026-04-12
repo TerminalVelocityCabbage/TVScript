@@ -31,7 +31,7 @@ public class Parser {
         while (match(TokenType.OR)) {
             Token operator = previous();
             Expression right = and();
-            expr = new Expression.Binary(expr, operator, right);
+            expr = new Expression.Logical(expr, operator, right);
         }
 
         return expr;
@@ -43,7 +43,7 @@ public class Parser {
         while (match(TokenType.AND)) {
             Token operator = previous();
             Expression right = equality();
-            expr = new Expression.Binary(expr, operator, right);
+            expr = new Expression.Logical(expr, operator, right);
         }
 
         return expr;
@@ -98,7 +98,7 @@ public class Parser {
     }
 
     private Expression unary() {
-        if (match(TokenType.BANG, TokenType.MINUS, TokenType.NOT)) {
+        if (match(TokenType.BANG, TokenType.MINUS)) {
             Token operator = previous();
             Expression right = unary();
             return new Expression.Unary(operator, right);
@@ -117,25 +117,23 @@ public class Parser {
         }
 
         if (match(TokenType.STRING_PART)) {
-            Expression expr = new Expression.Literal(previous().getValue());
+            java.util.List<Expression> expressions = new java.util.ArrayList<>();
+            expressions.add(new Expression.Literal(previous().getValue()));
             while (true) {
                 consume(TokenType.LEFT_BRACE, "Expect '{' to start interpolation.");
-                Expression interpolation = expression();
+                expressions.add(expression());
                 consume(TokenType.RIGHT_BRACE, "Expect '}' after interpolation.");
-                expr = new Expression.Binary(expr, new Token(TokenType.PLUS, "+", null, previous().getLine()), interpolation);
 
                 if (match(TokenType.STRING_PART)) {
-                    expr = new Expression.Binary(expr, new Token(TokenType.PLUS, "+", null, previous().getLine()), new Expression.Literal(previous().getValue()));
+                    expressions.add(new Expression.Literal(previous().getValue()));
                 } else if (match(TokenType.STRING)) {
-                    expr = new Expression.Binary(expr, new Token(TokenType.PLUS, "+", null, previous().getLine()), new Expression.Literal(previous().getValue()));
+                    expressions.add(new Expression.Literal(previous().getValue()));
                     break;
                 } else {
-                    // This could be reached if something else follows, but the scanner
-                    // should ensure it's either STRING_PART or STRING after a string interpolation block.
                     break;
                 }
             }
-            return expr;
+            return new Expression.Interpolation(expressions);
         }
 
         if (match(TokenType.INTEGER, TokenType.DECIMAL)) {
@@ -143,7 +141,7 @@ public class Parser {
         }
 
         if (match(TokenType.IDENTIFIER)) {
-            return new Expression.Literal(previous().getLexeme()); // Using lexeme as value for identifiers in Literals for now
+            return new Expression.Variable(previous());
         }
 
         if (match(TokenType.LEFT_PAREN)) {

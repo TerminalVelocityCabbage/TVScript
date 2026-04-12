@@ -23,8 +23,30 @@ public class AstPrinter implements Expression.Visitor<String> {
     }
 
     @Override
+    public String visitLogicalExpr(Expression.Logical expr) {
+        return parenthesize(expr.operator.getLexeme(), expr.left, expr.right);
+    }
+
+    @Override
     public String visitUnaryExpr(Expression.Unary expr) {
         return parenthesize(expr.operator.getLexeme(), expr.right);
+    }
+
+    @Override
+    public String visitInterpolationExpr(Expression.Interpolation expr) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("(interpolation");
+        for (Expression expression : expr.expressions) {
+            builder.append(" ");
+            builder.append(expression.accept(this));
+        }
+        builder.append(")");
+        return builder.toString();
+    }
+
+    @Override
+    public String visitVariableExpr(Expression.Variable expr) {
+        return expr.name.getLexeme();
     }
 
     private String parenthesize(String name, Expression... exprs) {
