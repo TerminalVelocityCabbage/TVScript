@@ -59,6 +59,11 @@ public class AstPrinter implements Expression.Visitor<String> {
         return parenthesize("= " + expr.name.getLexeme(), expr.value);
     }
 
+    @Override
+    public String visitRangeExpr(Expression.Range expr) {
+        return parenthesize("..", expr.start, expr.end);
+    }
+
     private String parenthesize(String name, Expression... exprs) {
         StringBuilder builder = new StringBuilder();
 

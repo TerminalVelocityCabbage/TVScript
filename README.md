@@ -4,7 +4,7 @@
 Currently, the language is under heavy development. Below is the implementation status of the features outlined in this spec.
 
 ### Core Implementation
-- [x] Basic Types (`integer`, `decimal`, `string`, `boolean`, `none`)
+- [x] Basic Types (`integer`, `decimal`, `string`, `boolean`, `none`, `range`)
 - [x] Variable Definitions (`var`, `const`, and explicit type)
 - [x] Basic Expressions & Operators
 - [x] Indentation-based Block Scoping
@@ -12,7 +12,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] `print` & `pass` Statements
 - [x] Ternary Operator (`condition ? true : false`)
 - [x] String Interpolation (`"{expression}"`)
-- [ ] `while` & `for` Loops
+- [x] `while` & `for` Loops (Ranges, `break`, `continue`)
 - [ ] `match` Statements
 - [ ] Functions & First-class functions
 - [ ] Classes & Objects

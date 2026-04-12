@@ -96,6 +96,14 @@ public class TVScript {
         }
     }
 
+    static void warning(Token token, String message) {
+        if (token.getType() == TokenType.EOF) {
+            System.err.println("[line " + token.getLine() + "] Warning at end: " + message);
+        } else {
+            System.err.println("[line " + token.getLine() + "] Warning at '" + token.getLexeme() + "': " + message);
+        }
+    }
+
     private static void report(int line, String where, String message) {
         System.err.println("[line " + line + "] Error" + where + ": " + message);
         hadError = true;

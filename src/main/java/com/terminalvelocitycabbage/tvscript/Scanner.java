@@ -45,6 +45,7 @@ public class Scanner {
         keywords.put("new", TokenType.NEW);
         keywords.put("trait", TokenType.TRAIT);
         keywords.put("type", TokenType.TYPE);
+        keywords.put("in", TokenType.IN);
         keywords.put("operator", TokenType.OPERATOR);
         keywords.put("this", TokenType.THIS);
         keywords.put("super", TokenType.SUPER);

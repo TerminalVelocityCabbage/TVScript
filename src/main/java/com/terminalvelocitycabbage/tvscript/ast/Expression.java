@@ -13,6 +13,7 @@ public abstract class Expression {
         R visitInterpolationExpr(Interpolation expr);
         R visitVariableExpr(Variable expr);
         R visitAssignExpr(Assign expr);
+        R visitRangeExpr(Range expr);
     }
 
     public abstract <R> R accept(Visitor<R> visitor);
@@ -149,6 +150,23 @@ public abstract class Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitAssignExpr(this);
+        }
+    }
+
+    public static class Range extends Expression {
+        public final Token operator;
+        public final Expression start;
+        public final Expression end;
+
+        public Range(Token operator, Expression start, Expression end) {
+            this.operator = operator;
+            this.start = start;
+            this.end = end;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitRangeExpr(this);
         }
     }
 }

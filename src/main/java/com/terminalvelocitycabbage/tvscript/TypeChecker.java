@@ -9,6 +9,7 @@ import java.util.Map;
 
 public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<TokenType> {
     private final List<Map<String, VariableStaticInfo>> scopes = new ArrayList<>();
+    private int loopDepth = 0;
 
     private static class VariableStaticInfo {
         final TokenType type;
@@ -67,6 +68,69 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     @Override
+    public Void visitWhileStmt(Statement.While stmt) {
+        TokenType conditionType = check(stmt.condition);
+        if (conditionType != TokenType.TYPE_BOOLEAN) {
+            TVScript.compileError(new CompileError(stmt.keyword, "While condition must be a boolean."));
+        }
+
+        // Infinite loop detection
+        if (stmt.condition instanceof Expression.Literal) {
+            Object value = ((Expression.Literal) stmt.condition).value;
+            if (Boolean.TRUE.equals(value)) {
+                TVScript.warning(stmt.keyword, "Potential infinite loop: constant true condition.");
+            }
+        } else {
+            List<String> vars = getVariablesUsed(stmt.condition);
+            if (!vars.isEmpty() && !isMutated(stmt.body, vars)) {
+                TVScript.warning(stmt.keyword, "Potential infinite loop: condition variables are not mutated in the loop body.");
+            }
+        }
+
+        loopDepth++;
+        check(stmt.body);
+        loopDepth--;
+
+        return null;
+    }
+
+    @Override
+    public Void visitForStmt(Statement.For stmt) {
+        TokenType rangeType = check(stmt.range);
+        if (rangeType != TokenType.TYPE_RANGE) {
+            TVScript.compileError(new CompileError(stmt.keyword, "For loop expects a range."));
+        }
+
+        beginScope();
+        if (stmt.name != null) {
+            declare(stmt.name, stmt.type.getType(), false);
+        }
+
+        loopDepth++;
+        check(stmt.body);
+        loopDepth--;
+
+        endScope();
+        return null;
+    }
+
+    @Override
+    public Void visitBreakStmt(Statement.Break stmt) {
+        if (loopDepth == 0) {
+            TVScript.compileError(new CompileError(stmt.keyword, "Cannot use 'break' outside of a loop."));
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitContinueStmt(Statement.Continue stmt) {
+        if (loopDepth == 0) {
+            TVScript.compileError(new CompileError(stmt.keyword, "Cannot use 'continue' outside of a loop."));
+        }
+        return null;
+    }
+
+    @Override
     public Void visitPrintStmt(Statement.Print stmt) {
         check(stmt.expression);
         return null;
@@ -111,14 +175,21 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             case GREATER_EQUAL:
             case LESS:
             case LESS_EQUAL:
+                return TokenType.TYPE_BOOLEAN;
             case MINUS:
             case SLASH:
             case STAR:
             case PERCENT:
-                return TokenType.TYPE_DECIMAL; // simplified for now
+                if (left == TokenType.TYPE_INTEGER && right == TokenType.TYPE_INTEGER) {
+                    return TokenType.TYPE_INTEGER;
+                }
+                return TokenType.TYPE_DECIMAL;
             case PLUS:
                 if (left == TokenType.TYPE_STRING || right == TokenType.TYPE_STRING) {
                     return TokenType.TYPE_STRING;
+                }
+                if (left == TokenType.TYPE_INTEGER && right == TokenType.TYPE_INTEGER) {
+                    return TokenType.TYPE_INTEGER;
                 }
                 return TokenType.TYPE_DECIMAL;
             case BANG_EQUAL:
@@ -199,6 +270,18 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return valueType;
     }
 
+    @Override
+    public TokenType visitRangeExpr(Expression.Range expr) {
+        TokenType start = check(expr.start);
+        TokenType end = check(expr.end);
+
+        if (start != TokenType.TYPE_INTEGER || end != TokenType.TYPE_INTEGER) {
+            TVScript.compileError(new CompileError(expr.operator, "Range bounds must be integers."));
+        }
+
+        return TokenType.TYPE_RANGE;
+    }
+
     private void beginScope() {
         scopes.add(new HashMap<>());
     }
@@ -238,5 +321,52 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         if (expected == actual) return true;
         if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_INTEGER) return true;
         return false;
+    }
+
+    private List<String> getVariablesUsed(Expression expression) {
+        List<String> vars = new ArrayList<>();
+        expression.accept(new Expression.Visitor<Void>() {
+            @Override public Void visitBinaryExpr(Expression.Binary expr) { expr.left.accept(this); expr.right.accept(this); return null; }
+            @Override public Void visitGroupingExpr(Expression.Grouping expr) { expr.expression.accept(this); return null; }
+            @Override public Void visitLiteralExpr(Expression.Literal expr) { return null; }
+            @Override public Void visitLogicalExpr(Expression.Logical expr) { expr.left.accept(this); expr.right.accept(this); return null; }
+            @Override public Void visitUnaryExpr(Expression.Unary expr) { expr.right.accept(this); return null; }
+            @Override public Void visitTernaryExpr(Expression.Ternary expr) { expr.condition.accept(this); expr.trueBranch.accept(this); expr.falseBranch.accept(this); return null; }
+            @Override public Void visitInterpolationExpr(Expression.Interpolation expr) { for (Expression e : expr.expressions) e.accept(this); return null; }
+            @Override public Void visitVariableExpr(Expression.Variable expr) { vars.add(expr.name.getLexeme()); return null; }
+            @Override public Void visitAssignExpr(Expression.Assign expr) { vars.add(expr.name.getLexeme()); expr.value.accept(this); return null; }
+            @Override public Void visitRangeExpr(Expression.Range expr) { expr.start.accept(this); expr.end.accept(this); return null; }
+        });
+        return vars;
+    }
+
+    private boolean isMutated(Statement body, List<String> vars) {
+        final boolean[] mutated = {false};
+        body.accept(new Statement.Visitor<Void>() {
+            @Override public Void visitBlockStmt(Statement.Block stmt) { for (Statement s : stmt.statements) s.accept(this); return null; }
+            @Override public Void visitExpressionStmt(Statement.ExpressionStmt stmt) { stmt.expression.accept(exprVisitor); return null; }
+            @Override public Void visitIfStmt(Statement.If stmt) { stmt.thenBranch.accept(this); if (stmt.elseBranch != null) stmt.elseBranch.accept(this); return null; }
+            @Override public Void visitPrintStmt(Statement.Print stmt) { return null; }
+            @Override public Void visitVarStmt(Statement.Var stmt) { return null; }
+            @Override public Void visitPassStmt(Statement.Pass stmt) { return null; }
+            @Override public Void visitWhileStmt(Statement.While stmt) { stmt.body.accept(this); return null; }
+            @Override public Void visitForStmt(Statement.For stmt) { stmt.body.accept(this); return null; }
+            @Override public Void visitBreakStmt(Statement.Break stmt) { return null; }
+            @Override public Void visitContinueStmt(Statement.Continue stmt) { return null; }
+
+            private final Expression.Visitor<Void> exprVisitor = new Expression.Visitor<Void>() {
+                @Override public Void visitBinaryExpr(Expression.Binary expr) { expr.left.accept(this); expr.right.accept(this); return null; }
+                @Override public Void visitGroupingExpr(Expression.Grouping expr) { expr.expression.accept(this); return null; }
+                @Override public Void visitLiteralExpr(Expression.Literal expr) { return null; }
+                @Override public Void visitLogicalExpr(Expression.Logical expr) { expr.left.accept(this); expr.right.accept(this); return null; }
+                @Override public Void visitUnaryExpr(Expression.Unary expr) { expr.right.accept(this); return null; }
+                @Override public Void visitTernaryExpr(Expression.Ternary expr) { expr.condition.accept(this); expr.trueBranch.accept(this); expr.falseBranch.accept(this); return null; }
+                @Override public Void visitInterpolationExpr(Expression.Interpolation expr) { for (Expression e : expr.expressions) e.accept(this); return null; }
+                @Override public Void visitVariableExpr(Expression.Variable expr) { return null; }
+                @Override public Void visitAssignExpr(Expression.Assign expr) { if (vars.contains(expr.name.getLexeme())) mutated[0] = true; expr.value.accept(this); return null; }
+                @Override public Void visitRangeExpr(Expression.Range expr) { expr.start.accept(this); expr.end.accept(this); return null; }
+            };
+        });
+        return mutated[0];
     }
 }

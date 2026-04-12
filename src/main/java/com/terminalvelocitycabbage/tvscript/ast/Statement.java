@@ -12,6 +12,10 @@ public abstract class Statement {
         R visitPrintStmt(Print stmt);
         R visitVarStmt(Var stmt);
         R visitPassStmt(Pass stmt);
+        R visitWhileStmt(While stmt);
+        R visitForStmt(For stmt);
+        R visitBreakStmt(Break stmt);
+        R visitContinueStmt(Continue stmt);
     }
 
     public abstract <R> R accept(Visitor<R> visitor);
@@ -99,6 +103,70 @@ public abstract class Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitPassStmt(this);
+        }
+    }
+
+    public static class While extends Statement {
+        public final Token keyword;
+        public final Expression condition;
+        public final Statement body;
+
+        public While(Token keyword, Expression condition, Statement body) {
+            this.keyword = keyword;
+            this.condition = condition;
+            this.body = body;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitWhileStmt(this);
+        }
+    }
+
+    public static class For extends Statement {
+        public final Token keyword;
+        public final Token type;
+        public final Token name;
+        public final Expression range;
+        public final Statement body;
+
+        public For(Token keyword, Token type, Token name, Expression range, Statement body) {
+            this.keyword = keyword;
+            this.type = type;
+            this.name = name;
+            this.range = range;
+            this.body = body;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitForStmt(this);
+        }
+    }
+
+    public static class Break extends Statement {
+        public final Token keyword;
+
+        public Break(Token keyword) {
+            this.keyword = keyword;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitBreakStmt(this);
+        }
+    }
+
+    public static class Continue extends Statement {
+        public final Token keyword;
+
+        public Continue(Token keyword) {
+            this.keyword = keyword;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitContinueStmt(this);
         }
     }
 }

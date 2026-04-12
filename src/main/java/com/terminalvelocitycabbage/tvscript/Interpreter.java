@@ -7,6 +7,23 @@ import java.util.List;
 
 public class Interpreter implements Expression.Visitor<Object>, Statement.Visitor<Void> {
 
+    private static class BreakException extends RuntimeException {
+        BreakException() { super(null, null, false, false); }
+    }
+
+    private static class ContinueException extends RuntimeException {
+        ContinueException() { super(null, null, false, false); }
+    }
+
+    private static class RangeValue {
+        final int start;
+        final int end;
+        RangeValue(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+    }
+
     private Environment environment = new Environment();
 
     public void interpret(List<Statement> statements) {
@@ -174,6 +191,18 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Object visitRangeExpr(Expression.Range expr) {
+        Object start = evaluate(expr.start);
+        Object end = evaluate(expr.end);
+
+        if (!(start instanceof Integer) || !(end instanceof Integer)) {
+            throw new RuntimeError(expr.operator, "Range bounds must be integers.");
+        }
+
+        return new RangeValue((int) start, (int) end);
+    }
+
+    @Override
     public Void visitBlockStmt(Statement.Block stmt) {
         executeBlock(stmt.statements, new Environment(environment));
         return null;
@@ -205,6 +234,69 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             execute(stmt.elseBranch);
         }
         return null;
+    }
+
+    @Override
+    public Void visitWhileStmt(Statement.While stmt) {
+        try {
+            while (isTruthy(stmt.keyword, evaluate(stmt.condition))) {
+                try {
+                    execute(stmt.body);
+                } catch (ContinueException e) {
+                    // Do nothing, just continue
+                }
+            }
+        } catch (BreakException e) {
+            // Do nothing, just break
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitForStmt(Statement.For stmt) {
+        Object rangeObj = evaluate(stmt.range);
+        if (!(rangeObj instanceof RangeValue)) {
+            // This should be caught by type checker, but for safety:
+            throw new RuntimeError(stmt.keyword, "Expected range in for loop.");
+        }
+        RangeValue range = (RangeValue) rangeObj;
+
+        Environment previous = this.environment;
+        try {
+            for (int i = range.start; i <= range.end; i++) {
+                if (stmt.name != null) {
+                    // Create a new environment for each iteration to hold the loop variable
+                    this.environment = new Environment(previous);
+                    this.environment.define(stmt.name, i, stmt.type.getType(), false);
+                } else {
+                    // Even if no variable, we might want a new scope for variables defined in the body
+                    this.environment = new Environment(previous);
+                }
+
+                try {
+                    execute(stmt.body);
+                } catch (ContinueException e) {
+                    // continue
+                } finally {
+                    this.environment = previous;
+                }
+            }
+        } catch (BreakException e) {
+            // break
+        } finally {
+            this.environment = previous;
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitBreakStmt(Statement.Break stmt) {
+        throw new BreakException();
+    }
+
+    @Override
+    public Void visitContinueStmt(Statement.Continue stmt) {
+        throw new ContinueException();
     }
 
     @Override

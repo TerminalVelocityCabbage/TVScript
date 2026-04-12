@@ -70,11 +70,71 @@ public class Parser {
 
     private Statement statement() {
         if (match(IF)) return ifStatement();
+        if (match(WHILE)) return whileStatement();
+        if (match(FOR)) return forStatement();
+        if (match(BREAK)) return breakStatement();
+        if (match(CONTINUE)) return continueStatement();
         if (match(PRINT)) return printStatement();
         if (match(PASS)) return passStatement();
         if (match(INDENT)) return new Statement.Block(block());
 
         return expressionStatement();
+    }
+
+    private Statement whileStatement() {
+        Token keyword = previous();
+        Expression condition = expression();
+        consume(COLON, "Expect ':' after while condition.");
+
+        Statement body;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in while statement.");
+            body = new Statement.Block(block());
+        } else {
+            body = statement();
+        }
+
+        return new Statement.While(keyword, condition, body);
+    }
+
+    private Statement forStatement() {
+        Token keyword = previous();
+        Token type = null;
+        Token name = null;
+
+        if (match(LEFT_BRACKET)) {
+            if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, IDENTIFIER)) {
+                type = previous();
+                name = consume(IDENTIFIER, "Expect loop variable name.");
+                consume(RIGHT_BRACKET, "Expect ']' after loop variable.");
+                consume(IN, "Expect 'in' after loop variable.");
+            } else {
+                throw error(peek(), "Expect type in loop variable declaration.");
+            }
+        }
+
+        Expression range = expression();
+        consume(COLON, "Expect ':' after for loop.");
+
+        Statement body;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in for statement.");
+            body = new Statement.Block(block());
+        } else {
+            body = statement();
+        }
+
+        return new Statement.For(keyword, type, name, range, body);
+    }
+
+    private Statement breakStatement() {
+        Token keyword = previous();
+        return new Statement.Break(keyword);
+    }
+
+    private Statement continueStatement() {
+        Token keyword = previous();
+        return new Statement.Continue(keyword);
     }
 
     private Statement ifStatement() {
@@ -204,12 +264,24 @@ public class Parser {
     }
 
     private Expression comparison() {
-        Expression expr = term();
+        Expression expr = range();
 
         while (match(TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL)) {
             Token operator = previous();
-            Expression right = term();
+            Expression right = range();
             expr = new Expression.Binary(expr, operator, right);
+        }
+
+        return expr;
+    }
+
+    private Expression range() {
+        Expression expr = term();
+
+        if (match(DOT_DOT)) {
+            Token operator = previous();
+            Expression right = term();
+            expr = new Expression.Range(operator, expr, right);
         }
 
         return expr;
