@@ -1,18 +1,27 @@
 package com.terminalvelocitycabbage.tvscript;
 
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
-import java.util.ArrayList;
+import com.terminalvelocitycabbage.tvscript.ast.Statement;
+
 import java.util.List;
 
-public class Interpreter implements Expression.Visitor<Object> {
+public class Interpreter implements Expression.Visitor<Object>, Statement.Visitor<Void> {
 
-    public void interpret(Expression expression) {
+    private Environment environment = new Environment();
+
+    public void interpret(List<Statement> statements) {
         try {
-            Object value = evaluate(expression);
-            System.out.println(stringify(value));
+            for (Statement statement : statements) {
+                execute(statement);
+            }
         } catch (RuntimeError error) {
             TVScript.runtimeError(error);
+            throw error;
         }
+    }
+
+    private void execute(Statement stmt) {
+        stmt.accept(this);
     }
 
     public Object evaluate(Expression expression) {
@@ -154,7 +163,89 @@ public class Interpreter implements Expression.Visitor<Object> {
 
     @Override
     public Object visitVariableExpr(Expression.Variable expr) {
-        throw new RuntimeError(expr.name, "Undefined variable '" + expr.name.getLexeme() + "'.");
+        return environment.get(expr.name);
+    }
+
+    @Override
+    public Object visitAssignExpr(Expression.Assign expr) {
+        Object value = evaluate(expr.value);
+        environment.assign(expr.name, value);
+        return value;
+    }
+
+    @Override
+    public Void visitBlockStmt(Statement.Block stmt) {
+        executeBlock(stmt.statements, new Environment(environment));
+        return null;
+    }
+
+    private void executeBlock(List<Statement> statements, Environment environment) {
+        Environment previous = this.environment;
+        try {
+            this.environment = environment;
+            for (Statement statement : statements) {
+                execute(statement);
+            }
+        } finally {
+            this.environment = previous;
+        }
+    }
+
+    @Override
+    public Void visitExpressionStmt(Statement.ExpressionStmt stmt) {
+        evaluate(stmt.expression);
+        return null;
+    }
+
+    @Override
+    public Void visitIfStmt(Statement.If stmt) {
+        if (isTruthy(stmt.keyword, evaluate(stmt.condition))) {
+            execute(stmt.thenBranch);
+        } else if (stmt.elseBranch != null) {
+            execute(stmt.elseBranch);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPrintStmt(Statement.Print stmt) {
+        Object value = evaluate(stmt.expression);
+        System.out.println(stringify(value));
+        return null;
+    }
+
+    @Override
+    public Void visitVarStmt(Statement.Var stmt) {
+        Object value = null;
+        if (stmt.initializer != null) {
+            value = evaluate(stmt.initializer);
+        }
+
+        TokenType type;
+        if (stmt.type.getType() == TokenType.VAR || stmt.type.getType() == TokenType.CONST) {
+            type = inferType(value);
+            if (type == null) {
+                throw new RuntimeError(stmt.name, "Cannot infer type from 'none'.");
+            }
+        } else {
+            type = stmt.type.getType();
+        }
+
+        environment.define(stmt.name, value, type, stmt.isConst);
+        return null;
+    }
+
+    @Override
+    public Void visitPassStmt(Statement.Pass stmt) {
+        return null;
+    }
+
+    private TokenType inferType(Object value) {
+        if (value instanceof Integer) return TokenType.TYPE_INTEGER;
+        if (value instanceof Double) return TokenType.TYPE_DECIMAL;
+        if (value instanceof String) return TokenType.TYPE_STRING;
+        if (value instanceof Boolean) return TokenType.TYPE_BOOLEAN;
+        return null;
     }
 
     private void checkNumberOperand(Token operator, Object operand) {
@@ -170,6 +261,7 @@ public class Interpreter implements Expression.Visitor<Object> {
 
     private boolean isTruthy(Token operator, Object object) {
         if (object instanceof Boolean) return (boolean) object;
+        if (operator == null) return false; // Default for if condition if not boolean?
         throw new RuntimeError(operator, "Expected boolean value.");
     }
 
@@ -182,14 +274,6 @@ public class Interpreter implements Expression.Visitor<Object> {
 
     private String stringify(Object object) {
         if (object == null) return "none";
-
-        if (object instanceof Double) {
-            String text = object.toString();
-            if (text.endsWith(".0")) {
-                text = text.substring(0, text.length() - 2);
-            }
-            return text;
-        }
 
         return object.toString();
     }

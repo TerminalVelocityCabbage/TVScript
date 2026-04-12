@@ -12,6 +12,7 @@ public abstract class Expression {
         R visitTernaryExpr(Ternary expr);
         R visitInterpolationExpr(Interpolation expr);
         R visitVariableExpr(Variable expr);
+        R visitAssignExpr(Assign expr);
     }
 
     public abstract <R> R accept(Visitor<R> visitor);
@@ -133,6 +134,21 @@ public abstract class Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitInterpolationExpr(this);
+        }
+    }
+
+    public static class Assign extends Expression {
+        public final Token name;
+        public final Expression value;
+
+        public Assign(Token name, Expression value) {
+            this.name = name;
+            this.value = value;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitAssignExpr(this);
         }
     }
 }

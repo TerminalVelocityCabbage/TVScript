@@ -136,7 +136,13 @@ class ScannerTest {
 
     @Test
     void testIndentation() {
-        String source = "if true:\n    print \"hi\"\n    if false:\n        print \"lo\"\n    print \"back\"\nprint \"done\"";
+        String source = """
+            if true:
+                print "hi"
+                if false:
+                    print "lo"
+                print "back"
+            print "done\"""";
         Scanner scanner = new Scanner(source);
         List<Token> tokens = scanner.scanTokens();
 
@@ -183,7 +189,10 @@ class ScannerTest {
 
     @Test
     void testComments() {
-        Scanner scanner = new Scanner("foo // comment\nbar /// block\ncomment /// baz");
+        Scanner scanner = new Scanner("""
+            foo // comment
+            bar /// block
+            comment /// baz""");
         List<Token> tokens = scanner.scanTokens();
 
         assertEquals(TokenType.IDENTIFIER, tokens.get(0).type);
@@ -197,7 +206,9 @@ class ScannerTest {
     
     @Test
     void testTripleQuotedStringsMultiline() {
-        Scanner scanner = new Scanner("\"\"\"line 1\nline 2\"\"\"");
+        Scanner scanner = new Scanner("""
+            \"\"\"line 1
+            line 2\"\"\"""");
         List<Token> tokens = scanner.scanTokens();
 
         assertEquals(TokenType.STRING, tokens.get(0).type);

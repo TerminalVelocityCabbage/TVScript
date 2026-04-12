@@ -80,6 +80,8 @@ public class Scanner {
     private boolean isAtLineStart = true;
     private int interpolationDepth = 0;
     private boolean isScanningTripleQuotedString = false;
+    private int detectedIndentSize = 0;
+    private char detectedIndentChar = '\0';
 
     public Scanner(String source) {
         this.source = source;
@@ -240,27 +242,76 @@ public class Scanner {
 
     private void handleIndentation() {
         int indentation = 0;
+        int spaces = 0;
+        int tabs = 0;
+
         while (!isAtEnd() && (peek() == ' ' || peek() == '\t')) {
             char c = advance();
-            if (c == ' ') indentation++;
-            else indentation += 4; // Assume tab is 4 spaces for now
+            if (c == ' ') spaces++;
+            else tabs++;
         }
 
         // Skip empty lines or comment-only lines
-        if (peek() == '\n' || peek() == '/' && peekNext() == '/') {
+        if (peek() == '\n' || (peek() == '/' && peekNext() == '/')) {
             isAtLineStart = true; // Wait for next line
             return;
         }
 
-        if (indentation > indentLevels.peek()) {
-            indentLevels.push(indentation);
+        // Determine indentation style from the first indented line
+        if (detectedIndentChar == '\0' && (spaces > 0 || tabs > 0)) {
+            if (tabs > 0) {
+                if (spaces > 0) {
+                    TVScript.error(line, "Mixed tabs and spaces in indentation.");
+                }
+                detectedIndentChar = '\t';
+                detectedIndentSize = 1;
+            } else {
+                detectedIndentChar = ' ';
+                if (spaces == 2 || spaces == 4) {
+                    detectedIndentSize = spaces;
+                } else {
+                    TVScript.error(line, "Indentation must be 2 spaces, 4 spaces, or 1 tab.");
+                }
+            }
+        }
+
+        int currentIndent;
+        if (detectedIndentChar == '\t') {
+            if (spaces > 0) TVScript.error(line, "Mixed tabs and spaces in indentation.");
+            currentIndent = tabs;
+        } else if (detectedIndentChar == ' ') {
+            if (tabs > 0) TVScript.error(line, "Mixed tabs and spaces in indentation.");
+            if (spaces % detectedIndentSize != 0) {
+                TVScript.error(line, "Inconsistent indentation. Expected multiples of " + detectedIndentSize + " spaces.");
+            }
+            currentIndent = spaces / detectedIndentSize;
+        } else {
+            // No indentation detected yet, or no indentation on this line
+            if (spaces > 0 || tabs > 0) {
+                // This shouldn't happen if detectedIndentChar is null but we have spaces/tabs,
+                // because the "Determine indentation style" block above would have set it.
+                // But just in case:
+                currentIndent = spaces + tabs;
+            } else {
+                currentIndent = 0;
+            }
+        }
+
+        // Use a virtual stack of levels (0, 1, 2...) instead of raw spaces
+        int level = indentLevels.size() - 1; // Current level is size - 1 because we push 0 initially
+
+        if (currentIndent > level) {
+            if (currentIndent > level + 1) {
+                TVScript.error(line, "Indentation jumped too far.");
+            }
+            indentLevels.push(currentIndent);
             addToken(TokenType.INDENT);
         } else {
-            while (indentation < indentLevels.peek()) {
+            while (currentIndent < indentLevels.size() - 1) {
                 indentLevels.pop();
                 addToken(TokenType.DEDENT);
             }
-            if (indentation != indentLevels.peek()) {
+            if (currentIndent != indentLevels.size() - 1) {
                 TVScript.error(line, "Indentation error at line " + line);
             }
         }

@@ -1,7 +1,10 @@
 package com.terminalvelocitycabbage.tvscript;
 
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
+import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import static com.terminalvelocitycabbage.tvscript.TokenType.*;
 
 public class Parser {
     private static class ParseError extends RuntimeException {}
@@ -13,6 +16,16 @@ public class Parser {
         this.tokens = tokens;
     }
 
+    public List<Statement> parseStatements() {
+        List<Statement> statements = new ArrayList<>();
+        while (!isAtEnd()) {
+            statements.add(declaration());
+            // Consume optional newlines after statements
+            while (match(NEWLINE));
+        }
+        return statements;
+    }
+
     public Expression parse() {
         try {
             return expression();
@@ -21,8 +34,123 @@ public class Parser {
         }
     }
 
+    private Statement declaration() {
+        try {
+            if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN)) {
+                return varDeclaration(previous());
+            }
+
+            return statement();
+        } catch (ParseError error) {
+            synchronize();
+            return null;
+        }
+    }
+
+    private Statement varDeclaration(Token typeToken) {
+        boolean isConst = typeToken.getType() == CONST;
+        Token finalType = typeToken;
+
+        if (isConst && match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN)) {
+            finalType = previous();
+        }
+
+        Token name = consume(IDENTIFIER, "Expect variable name.");
+
+        Expression initializer = null;
+        if (match(EQUAL)) {
+            initializer = expression();
+        } else if (isConst) {
+            TVScript.error(name, "Constant variable must be initialized.");
+            throw new ParseError();
+        }
+
+        return new Statement.Var(finalType, name, initializer, isConst);
+    }
+
+    private Statement statement() {
+        if (match(IF)) return ifStatement();
+        if (match(PRINT)) return printStatement();
+        if (match(PASS)) return passStatement();
+        if (match(INDENT)) return new Statement.Block(block());
+
+        return expressionStatement();
+    }
+
+    private Statement ifStatement() {
+        Token keyword = previous();
+        Expression condition = expression();
+        consume(COLON, "Expect ':' after if condition.");
+
+        Statement thenBranch;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in if statement.");
+            thenBranch = new Statement.Block(block());
+        } else {
+            thenBranch = statement();
+        }
+
+        Statement elseBranch = null;
+        if (match(ELSE)) {
+            consume(COLON, "Expect ':' after else.");
+            if (match(NEWLINE)) {
+                consume(INDENT, "Expect indentation after newline in else statement.");
+                elseBranch = new Statement.Block(block());
+            } else {
+                elseBranch = statement();
+            }
+        }
+
+        return new Statement.If(keyword, condition, thenBranch, elseBranch);
+    }
+
+    private Statement printStatement() {
+        Token keyword = previous();
+        Expression value = expression();
+        return new Statement.Print(keyword, value);
+    }
+
+    private Statement passStatement() {
+        return new Statement.Pass();
+    }
+
+    private List<Statement> block() {
+        List<Statement> statements = new ArrayList<>();
+
+        while (!check(DEDENT) && !isAtEnd()) {
+            statements.add(declaration());
+            while (match(NEWLINE));
+        }
+
+        consume(DEDENT, "Expect indentation decrease after block.");
+        return statements;
+    }
+
+    private Statement expressionStatement() {
+        Expression expr = expression();
+        return new Statement.ExpressionStmt(expr);
+    }
+
     private Expression expression() {
-        return ternary();
+        return assignment();
+    }
+
+    private Expression assignment() {
+        Expression expr = ternary();
+
+        if (match(EQUAL)) {
+            Token equals = previous();
+            Expression value = assignment();
+
+            if (expr instanceof Expression.Variable) {
+                Token name = ((Expression.Variable)expr).name;
+                return new Expression.Assign(name, value);
+            }
+
+            TVScript.error(equals, "Invalid assignment target.");
+        }
+
+        return expr;
     }
 
     private Expression ternary() {

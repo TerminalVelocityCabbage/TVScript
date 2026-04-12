@@ -1,6 +1,6 @@
 package com.terminalvelocitycabbage.tvscript;
 
-import com.terminalvelocitycabbage.tvscript.ast.Expression;
+import com.terminalvelocitycabbage.tvscript.ast.Statement;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -52,12 +52,22 @@ public class TVScript {
         Scanner scanner = new Scanner(source);
         List<Token> tokens = scanner.scanTokens();
         Parser parser = new Parser(tokens);
-        Expression expression = parser.parse();
+        List<Statement> statements = parser.parseStatements();
 
         // Stop if there was a syntax error.
         if (hadError) return;
 
-        interpreter.interpret(expression);
+        TypeChecker typeChecker = new TypeChecker();
+        typeChecker.check(statements);
+
+        // Stop if there was a static analysis error.
+        if (hadError) return;
+
+        try {
+            interpreter.interpret(statements);
+        } catch (RuntimeError error) {
+            // Already reported.
+        }
     }
 
     static void error(int line, String message) {
@@ -76,6 +86,14 @@ public class TVScript {
         System.err.println(error.getMessage() +
                 "\n[line " + error.token.getLine() + "]");
         hadRuntimeError = true;
+    }
+
+    static void compileError(CompileError error) {
+        if (error.token.getType() == TokenType.EOF) {
+            report(error.token.getLine(), " at end", error.getMessage());
+        } else {
+            report(error.token.getLine(), " at '" + error.token.getLexeme() + "'", error.getMessage());
+        }
     }
 
     private static void report(int line, String where, String message) {
