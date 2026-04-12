@@ -9,6 +9,7 @@ public abstract class Expression {
         R visitLiteralExpr(Literal expr);
         R visitLogicalExpr(Logical expr);
         R visitUnaryExpr(Unary expr);
+        R visitTernaryExpr(Ternary expr);
         R visitInterpolationExpr(Interpolation expr);
         R visitVariableExpr(Variable expr);
     }
@@ -100,6 +101,25 @@ public abstract class Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitVariableExpr(this);
+        }
+    }
+
+    public static class Ternary extends Expression {
+        public final Expression condition;
+        public final Token operator;
+        public final Expression trueBranch;
+        public final Expression falseBranch;
+
+        public Ternary(Expression condition, Token operator, Expression trueBranch, Expression falseBranch) {
+            this.condition = condition;
+            this.operator = operator;
+            this.trueBranch = trueBranch;
+            this.falseBranch = falseBranch;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitTernaryExpr(this);
         }
     }
 

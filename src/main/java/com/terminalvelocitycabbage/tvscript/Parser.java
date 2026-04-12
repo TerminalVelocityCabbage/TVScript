@@ -22,7 +22,21 @@ public class Parser {
     }
 
     private Expression expression() {
-        return or();
+        return ternary();
+    }
+
+    private Expression ternary() {
+        Expression expr = or();
+
+        if (match(TokenType.QUESTION)) {
+            Token operator = previous();
+            Expression trueBranch = expression();
+            consume(TokenType.COLON, "Expect ':' after ternary condition.");
+            Expression falseBranch = ternary();
+            expr = new Expression.Ternary(expr, operator, trueBranch, falseBranch);
+        }
+
+        return expr;
     }
 
     private Expression or() {

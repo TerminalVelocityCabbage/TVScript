@@ -49,6 +49,10 @@ function doRandomThings(integer a, integer b = 20):
     else:
         print "fail"
 
+    // Ternary operators are also supported
+    string result = a > b ? "a is greater" : "b is greater or equal"
+    print result
+
     //You can also use a range for loops
     for 0..10:
         print "printing"

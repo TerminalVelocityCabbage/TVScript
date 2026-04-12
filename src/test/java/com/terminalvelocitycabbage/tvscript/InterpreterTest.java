@@ -100,6 +100,15 @@ class InterpreterTest {
     }
 
     @Test
+    void testTernary() {
+        assertEquals(1, evaluate("true ? 1 : 2"));
+        assertEquals(2, evaluate("false ? 1 : 2"));
+        assertEquals(1, evaluate("true ? (true ? 1 : 2) : 3"));
+        assertEquals(3, evaluate("false ? 1 : (false ? 2 : 3)"));
+        assertEquals(3, evaluate("false ? 1 : false ? 2 : 3")); // Right associativity
+    }
+
+    @Test
     void testRuntimeErrors() {
         assertThrows(RuntimeError.class, () -> evaluate("1 + \"a\""));
         assertThrows(RuntimeError.class, () -> evaluate("- \"a\""));

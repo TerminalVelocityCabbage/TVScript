@@ -63,6 +63,13 @@ class ParserTest {
         assertEquals("(!= 1 2)", print(parse("1 != 2")));
     }
     @Test
+    void testTernary() {
+        assertEquals("(? true 1 2)", print(parse("true ? 1 : 2")));
+        assertEquals("(? true (? false 1 2) 3)", print(parse("true ? false ? 1 : 2 : 3")));
+        assertEquals("(? true 1 (? false 2 3))", print(parse("true ? 1 : false ? 2 : 3")));
+    }
+
+    @Test
     void testInvalidCode() {
         assertNull(parse("1 + * 2"));
         assertNull(parse("(1 + 2"));

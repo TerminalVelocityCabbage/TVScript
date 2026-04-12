@@ -133,6 +133,17 @@ public class Interpreter implements Expression.Visitor<Object> {
     }
 
     @Override
+    public Object visitTernaryExpr(Expression.Ternary expr) {
+        Object condition = evaluate(expr.condition);
+
+        if (isTruthy(expr.operator, condition)) {
+            return evaluate(expr.trueBranch);
+        } else {
+            return evaluate(expr.falseBranch);
+        }
+    }
+
+    @Override
     public Object visitInterpolationExpr(Expression.Interpolation expr) {
         StringBuilder builder = new StringBuilder();
         for (Expression expression : expr.expressions) {

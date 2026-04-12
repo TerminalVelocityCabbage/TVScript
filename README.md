@@ -554,17 +554,6 @@ for [integer i] in 0..10:
 while condition:
     print "hello indefinitely"
 ```
-### Loops as Expressions
-Loops can also be used as expressions to assign values to variables.
-```
-integer sum = 0
-sum = for [integer i] in 0..10: sum += i
-print sum //prints 10
-
-var sum2 = 0
-sum2 = while sum2 < 10: sum2 += 1
-print sum2 //prints 10
-```
 ### Iterating over a list
 ```
 for [string value] in someList:
@@ -590,15 +579,7 @@ else if condition2:
 else:
   pass //If condition is false and condition2 is false this block will be executed
 ```
-### Conditional Expressions
-Conditions can be used as expressions to assign values to variables.
-```
-integer value = if condition:
-  trueValue
-else:
-  falseValue
-```
-Or you can use Ternary operators
+### Ternary operators
 ```
 boolean value = condition ? trueValue : falseValue
 ```
@@ -608,15 +589,6 @@ aka switch statements in java
 match someString:
   "hello": print "matches hello"
   "world": print "matches world"
-```
-#### Match expressions
-```
-string value = match someInteger:
-  1: "opcode 1"
-  2: "opcode 2"
-  3, 4: "opcode 3 or 4" //separate matches with commas if needed
-  5..9: "opcodes 5 thru 9" //for numbers you can use a range
-  default: "no match found" //If nothing is found this will be the value
 ```
 
 ## Functions
@@ -665,6 +637,7 @@ class Player:
   constructor(string name, integer health = 100):
     this.name = name
     this.health = health != none ? health : 100
+```,search:
 ```
 ### The this keyword
 The `this` keyword is used to refer to the current object. You might have seen it used in the constructor above. It just refers to the current object.
@@ -1110,17 +1083,6 @@ catch FileNotFoundError(string path):
 ```
 Note, not all errors need to be caught by uses in the try/catch block, if an error is not caught, it will be propagated up the call stack as normal.
 
-If you'd rather not use a try block you can instead use a try expression `try?` to get a Result[T, Error] object instead, where T is the return type of the function and E is an error being propagated by the function.
-```
-Result[string, Error] result = try? readFile(path: "a/path/to/a/file.txt")
-
-if result.isOk():
-    print "file contents: {result.ok()}"
-else:
-    match result.error():
-        default: //Or handle the errors seprately
-            print "error: {result.error()}"
-```
 
 ## Asynchronous execution
 Asynchronous execution is a way to allow the execution of code to continue while other code is being executed.

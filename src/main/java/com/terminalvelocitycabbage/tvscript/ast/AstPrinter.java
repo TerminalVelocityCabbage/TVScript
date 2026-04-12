@@ -33,6 +33,11 @@ public class AstPrinter implements Expression.Visitor<String> {
     }
 
     @Override
+    public String visitTernaryExpr(Expression.Ternary expr) {
+        return parenthesize("?", expr.condition, expr.trueBranch, expr.falseBranch);
+    }
+
+    @Override
     public String visitInterpolationExpr(Expression.Interpolation expr) {
         StringBuilder builder = new StringBuilder();
         builder.append("(interpolation");
