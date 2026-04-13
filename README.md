@@ -1,5 +1,15 @@
 # TVScript Reference
 
+TVScript is a high-level, object-oriented, statically typed, game or mod scripting language. It uses an indentation-based syntax similar to languages like Python. Its goal is to be optimized for embedding into java game engines, but is licensed under the MIT license, so feel free to write a runtime for your language of choice. The language definition itself does not require that it be implemented in Java; that's just what I use.
+
+## Language Design Goals
+- **Fast** TVScript is designed to be fast and efficient. Eventually this language will be compiled to JVM bytecode, so it should run just as fast as Java.
+- **Easy to learn** TVScript is intended to be used as a beginner's language while being powerful enough that seasoned developers can still make useful and fast software.
+- **Easy to embed** TVScript is designed to be embedded into a game engine, but it's also usable as a standalone language.
+- **Easy to read while remaining concise** TVScript is designed to be readable by humans, it's language features are verbose where it matters and concise where possible.
+- **Strict and Safe** TVScript is designed as a strongly typed language, and aims to reduce runtime errors by warning the developer if they are doing something that is likely to cause problems.
+
+
 ## Implementation Status (TODO List)
 Currently, the language is under heavy development. Below is the implementation status of the features outlined in this spec.
 
@@ -13,7 +23,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] Ternary Operator (`condition ? true : false`)
 - [x] String Interpolation (`"{expression}"`)
 - [x] `while` & `for` Loops (Ranges, `break`, `continue`)
-- [ ] `match` Statements
+- [x] `match` Statements
 - [ ] Functions & First-class functions
 - [ ] Classes & Objects
 - [ ] Inheritance & Traits
@@ -34,16 +44,6 @@ Currently, the language is under heavy development. Below is the implementation 
 - [ ] Bytecode Compilation (Currently Interpreted)
 
 ---
-
-TVScript is a high-level, object-oriented, statically typed, game or mod scripting language. It uses an indentation-based syntax similar to languages like Python. Its goal is to be optimized for embedding into java game engines, but is licensed under the MIT license, so feel free to write a runtime for your language of choice. The language definition itself does not require that it be implemented in Java; that's just what I use.
-
-## Language Design Goals
-- **Fast** TVScript is designed to be fast and efficient. Eventually this language will be compiled to JVM bytecode, so it should run just as fast as Java.
-- **Easy to learn** TVScript is intended to be used as a beginner's language while being powerful enough that seasoned developers can still make useful and fast software.
-- **Easy to embed** TVScript is designed to be embedded into a game engine, but it's also usable as a standalone language.
-- **Easy to read while remaining concise** TVScript is designed to be readable by humans, it's language features are verbose where it matters and concise where possible.
-- **Strict and Safe** TVScript is designed as a strongly typed language, and aims to reduce runtime errors by warning the developer if they are doing something that is likely to cause problems.
-
 
 ## Example of TVScript
 Some people learn better by taking a look at the syntax directly, keep reading for more details.

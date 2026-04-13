@@ -131,6 +131,38 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     @Override
+    public Void visitMatchStmt(Statement.Match stmt) {
+        TokenType conditionType = check(stmt.condition);
+
+        for (Statement.Case matchCase : stmt.cases) {
+            for (Expression pattern : matchCase.patterns) {
+                TokenType patternType = check(pattern);
+                if (patternType != null && !isCompatible(conditionType, patternType) && !isCompatible(patternType, conditionType)) {
+                     TVScript.compileError(new CompileError(stmt.keyword, "Pattern type " + patternType + " is not compatible with condition type " + conditionType + "."));
+                }
+            }
+            check(matchCase.branch);
+        }
+
+        if (stmt.defaultBranch != null) {
+            check(stmt.defaultBranch);
+        } else if (!isExhaustive(conditionType, stmt.cases)) {
+            TVScript.compileError(new CompileError(stmt.keyword, "Match statement must be exhaustive. Add a 'default' case."));
+        }
+
+        return null;
+    }
+
+    private boolean isExhaustive(TokenType type, List<?> cases) {
+        // For now, only enums (if they existed) could be exhaustive without default.
+        // Basic types like integer, decimal, string, boolean always need a default if not all values covered.
+        // Even for boolean, we might want to require default or check if both true and false are present.
+        // Given the requirement "if there is no way to guarantee exhaustiveness then a default branch is required",
+        // and we don't have a complex exhaustiveness checker yet, we'll require default for most cases.
+        return false; 
+    }
+
+    @Override
     public Void visitPrintStmt(Statement.Print stmt) {
         check(stmt.expression);
         return null;
@@ -282,6 +314,49 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.TYPE_RANGE;
     }
 
+    @Override
+    public TokenType visitMatchExpr(Expression.Match expr) {
+        TokenType conditionType = check(expr.condition);
+        TokenType resultType = null;
+
+        for (Expression.Case matchCase : expr.cases) {
+            for (Expression pattern : matchCase.patterns) {
+                TokenType patternType = check(pattern);
+                if (patternType != null && !isCompatible(conditionType, patternType) && !isCompatible(patternType, conditionType)) {
+                    TVScript.compileError(new CompileError(expr.keyword, "Pattern type " + patternType + " is not compatible with condition type " + conditionType + "."));
+                }
+            }
+            TokenType branchType = check(matchCase.branch);
+            if (resultType == null) {
+                resultType = branchType;
+            } else if (branchType != null && !isCompatible(resultType, branchType)) {
+                // Try the other way around if it's decimal/integer
+                if (isCompatible(branchType, resultType)) {
+                    resultType = branchType;
+                } else {
+                    TVScript.compileError(new CompileError(expr.keyword, "Incompatible types in match expression branches."));
+                }
+            }
+        }
+
+        if (expr.defaultBranch != null) {
+            TokenType defaultType = check(expr.defaultBranch);
+            if (resultType == null) {
+                resultType = defaultType;
+            } else if (defaultType != null && !isCompatible(resultType, defaultType)) {
+                 if (isCompatible(defaultType, resultType)) {
+                    resultType = defaultType;
+                } else {
+                    TVScript.compileError(new CompileError(expr.keyword, "Incompatible types in match expression branches."));
+                }
+            }
+        } else if (!isExhaustive(conditionType, expr.cases)) {
+            TVScript.compileError(new CompileError(expr.keyword, "Match expression must be exhaustive. Add a 'default' case."));
+        }
+
+        return resultType;
+    }
+
     private void beginScope() {
         scopes.add(new HashMap<>());
     }
@@ -320,6 +395,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private boolean isCompatible(TokenType expected, TokenType actual) {
         if (expected == actual) return true;
         if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_INTEGER) return true;
+        if (expected == TokenType.TYPE_INTEGER && actual == TokenType.TYPE_RANGE) return true;
+        if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_RANGE) return true;
         return false;
     }
 
@@ -336,6 +413,15 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             @Override public Void visitVariableExpr(Expression.Variable expr) { vars.add(expr.name.getLexeme()); return null; }
             @Override public Void visitAssignExpr(Expression.Assign expr) { vars.add(expr.name.getLexeme()); expr.value.accept(this); return null; }
             @Override public Void visitRangeExpr(Expression.Range expr) { expr.start.accept(this); expr.end.accept(this); return null; }
+            @Override public Void visitMatchExpr(Expression.Match expr) { 
+                expr.condition.accept(this); 
+                for (Expression.Case c : expr.cases) {
+                    for (Expression p : c.patterns) p.accept(this);
+                    c.branch.accept(this);
+                }
+                if (expr.defaultBranch != null) expr.defaultBranch.accept(this);
+                return null;
+            }
         });
         return vars;
     }
@@ -351,6 +437,15 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             @Override public Void visitPassStmt(Statement.Pass stmt) { return null; }
             @Override public Void visitWhileStmt(Statement.While stmt) { stmt.body.accept(this); return null; }
             @Override public Void visitForStmt(Statement.For stmt) { stmt.body.accept(this); return null; }
+            @Override public Void visitMatchStmt(Statement.Match stmt) {
+                stmt.condition.accept(exprVisitor);
+                for (Statement.Case c : stmt.cases) {
+                    for (Expression p : c.patterns) p.accept(exprVisitor);
+                    c.branch.accept(this);
+                }
+                if (stmt.defaultBranch != null) stmt.defaultBranch.accept(this);
+                return null;
+            }
             @Override public Void visitBreakStmt(Statement.Break stmt) { return null; }
             @Override public Void visitContinueStmt(Statement.Continue stmt) { return null; }
 
@@ -365,6 +460,15 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 @Override public Void visitVariableExpr(Expression.Variable expr) { return null; }
                 @Override public Void visitAssignExpr(Expression.Assign expr) { if (vars.contains(expr.name.getLexeme())) mutated[0] = true; expr.value.accept(this); return null; }
                 @Override public Void visitRangeExpr(Expression.Range expr) { expr.start.accept(this); expr.end.accept(this); return null; }
+                @Override public Void visitMatchExpr(Expression.Match expr) {
+                    expr.condition.accept(this);
+                    for (Expression.Case c : expr.cases) {
+                        for (Expression p : c.patterns) p.accept(this);
+                        c.branch.accept(this);
+                    }
+                    if (expr.defaultBranch != null) expr.defaultBranch.accept(this);
+                    return null;
+                }
             };
         });
         return mutated[0];

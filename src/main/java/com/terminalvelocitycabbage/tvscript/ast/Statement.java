@@ -16,6 +16,7 @@ public abstract class Statement {
         R visitForStmt(For stmt);
         R visitBreakStmt(Break stmt);
         R visitContinueStmt(Continue stmt);
+        R visitMatchStmt(Match stmt);
     }
 
     public abstract <R> R accept(Visitor<R> visitor);
@@ -167,6 +168,35 @@ public abstract class Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitContinueStmt(this);
+        }
+    }
+
+    public static class Match extends Statement {
+        public final Token keyword;
+        public final Expression condition;
+        public final List<Case> cases;
+        public final Statement defaultBranch;
+
+        public Match(Token keyword, Expression condition, List<Case> cases, Statement defaultBranch) {
+            this.keyword = keyword;
+            this.condition = condition;
+            this.cases = cases;
+            this.defaultBranch = defaultBranch;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitMatchStmt(this);
+        }
+    }
+
+    public static class Case {
+        public final List<Expression> patterns;
+        public final Statement branch;
+
+        public Case(List<Expression> patterns, Statement branch) {
+            this.patterns = patterns;
+            this.branch = branch;
         }
     }
 }

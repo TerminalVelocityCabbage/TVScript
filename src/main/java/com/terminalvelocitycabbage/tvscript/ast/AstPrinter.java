@@ -64,6 +64,24 @@ public class AstPrinter implements Expression.Visitor<String> {
         return parenthesize("..", expr.start, expr.end);
     }
 
+    @Override
+    public String visitMatchExpr(Expression.Match expr) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("(match ").append(expr.condition.accept(this));
+        for (Expression.Case matchCase : expr.cases) {
+            builder.append(" (case ");
+            for (Expression pattern : matchCase.patterns) {
+                builder.append(pattern.accept(this)).append(" ");
+            }
+            builder.append(matchCase.branch.accept(this)).append(")");
+        }
+        if (expr.defaultBranch != null) {
+            builder.append(" (default ").append(expr.defaultBranch.accept(this)).append(")");
+        }
+        builder.append(")");
+        return builder.toString();
+    }
+
     private String parenthesize(String name, Expression... exprs) {
         StringBuilder builder = new StringBuilder();
 

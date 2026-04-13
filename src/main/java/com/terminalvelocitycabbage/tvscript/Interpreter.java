@@ -203,6 +203,41 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Object visitMatchExpr(Expression.Match expr) {
+        Object condition = evaluate(expr.condition);
+
+        for (Expression.Case matchCase : expr.cases) {
+            for (Expression pattern : matchCase.patterns) {
+                Object patternValue = evaluate(pattern);
+                if (matchPattern(condition, patternValue)) {
+                    return evaluate(matchCase.branch);
+                }
+            }
+        }
+
+        if (expr.defaultBranch != null) {
+            return evaluate(expr.defaultBranch);
+        }
+
+        throw new RuntimeError(expr.keyword, "Match expression not exhaustive.");
+    }
+
+    private boolean matchPattern(Object condition, Object pattern) {
+        if (pattern instanceof RangeValue) {
+            RangeValue range = (RangeValue) pattern;
+            if (condition instanceof Integer) {
+                int val = (int) condition;
+                return val >= range.start && val <= range.end;
+            }
+            if (condition instanceof Double) {
+                double val = (double) condition;
+                return val >= range.start && val <= range.end;
+            }
+        }
+        return isEqual(condition, pattern);
+    }
+
+    @Override
     public Void visitBlockStmt(Statement.Block stmt) {
         executeBlock(stmt.statements, new Environment(environment));
         return null;
@@ -329,6 +364,27 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitPassStmt(Statement.Pass stmt) {
+        return null;
+    }
+
+    @Override
+    public Void visitMatchStmt(Statement.Match stmt) {
+        Object condition = evaluate(stmt.condition);
+
+        for (Statement.Case matchCase : stmt.cases) {
+            for (Expression pattern : matchCase.patterns) {
+                Object patternValue = evaluate(pattern);
+                if (matchPattern(condition, patternValue)) {
+                    execute(matchCase.branch);
+                    return null;
+                }
+            }
+        }
+
+        if (stmt.defaultBranch != null) {
+            execute(stmt.defaultBranch);
+        }
+
         return null;
     }
 

@@ -14,6 +14,7 @@ public abstract class Expression {
         R visitVariableExpr(Variable expr);
         R visitAssignExpr(Assign expr);
         R visitRangeExpr(Range expr);
+        R visitMatchExpr(Match expr);
     }
 
     public abstract <R> R accept(Visitor<R> visitor);
@@ -167,6 +168,35 @@ public abstract class Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitRangeExpr(this);
+        }
+    }
+
+    public static class Match extends Expression {
+        public final Token keyword;
+        public final Expression condition;
+        public final java.util.List<Case> cases;
+        public final Expression defaultBranch;
+
+        public Match(Token keyword, Expression condition, java.util.List<Case> cases, Expression defaultBranch) {
+            this.keyword = keyword;
+            this.condition = condition;
+            this.cases = cases;
+            this.defaultBranch = defaultBranch;
+        }
+
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitMatchExpr(this);
+        }
+    }
+
+    public static class Case {
+        public final java.util.List<Expression> patterns;
+        public final Expression branch;
+
+        public Case(java.util.List<Expression> patterns, Expression branch) {
+            this.patterns = patterns;
+            this.branch = branch;
         }
     }
 }

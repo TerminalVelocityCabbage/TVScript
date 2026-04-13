@@ -72,6 +72,7 @@ public class Parser {
         if (match(IF)) return ifStatement();
         if (match(WHILE)) return whileStatement();
         if (match(FOR)) return forStatement();
+        if (match(MATCH)) return matchStatement();
         if (match(BREAK)) return breakStatement();
         if (match(CONTINUE)) return continueStatement();
         if (match(PRINT)) return printStatement();
@@ -174,6 +175,49 @@ public class Parser {
         return new Statement.Pass();
     }
 
+    private Statement matchStatement() {
+        Token keyword = previous();
+        Expression condition = expression();
+        consume(COLON, "Expect ':' after match condition.");
+        consume(NEWLINE, "Expect newline after match condition.");
+        consume(INDENT, "Expect indentation after match statement.");
+
+        List<Statement.Case> cases = new ArrayList<>();
+        Statement defaultBranch = null;
+
+        while (!check(DEDENT) && !isAtEnd()) {
+            if (match(DEFAULT)) {
+                consume(COLON, "Expect ':' after default.");
+                if (match(NEWLINE)) {
+                    consume(INDENT, "Expect indentation after default block.");
+                    defaultBranch = new Statement.Block(block());
+                } else {
+                    defaultBranch = statement();
+                    while (match(NEWLINE));
+                }
+            } else {
+                List<Expression> patterns = new ArrayList<>();
+                do {
+                    patterns.add(expression());
+                } while (match(COMMA));
+
+                consume(COLON, "Expect ':' after match patterns.");
+                Statement branch;
+                if (match(NEWLINE)) {
+                    consume(INDENT, "Expect indentation after match case block.");
+                    branch = new Statement.Block(block());
+                } else {
+                    branch = statement();
+                    while (match(NEWLINE));
+                }
+                cases.add(new Statement.Case(patterns, branch));
+            }
+        }
+
+        consume(DEDENT, "Expect dedent after match cases.");
+        return new Statement.Match(keyword, condition, cases, defaultBranch);
+    }
+
     private List<Statement> block() {
         List<Statement> statements = new ArrayList<>();
 
@@ -195,6 +239,38 @@ public class Parser {
         return assignment();
     }
 
+    private Expression matchExpression() {
+        Token keyword = previous();
+        Expression condition = expression();
+        consume(COLON, "Expect ':' after match condition.");
+        consume(NEWLINE, "Expect newline after match condition.");
+        consume(INDENT, "Expect indentation after match expression.");
+
+        List<Expression.Case> cases = new ArrayList<>();
+        Expression defaultBranch = null;
+
+        while (!check(DEDENT) && !isAtEnd()) {
+            if (match(DEFAULT)) {
+                consume(COLON, "Expect ':' after default.");
+                defaultBranch = expression();
+                while (match(NEWLINE));
+            } else {
+                List<Expression> patterns = new ArrayList<>();
+                do {
+                    patterns.add(expression());
+                } while (match(COMMA));
+
+                consume(COLON, "Expect ':' after match patterns.");
+                Expression branch = expression();
+                cases.add(new Expression.Case(patterns, branch));
+                while (match(NEWLINE));
+            }
+        }
+
+        consume(DEDENT, "Expect dedent after match cases.");
+        return new Expression.Match(keyword, condition, cases, defaultBranch);
+    }
+
     private Expression assignment() {
         Expression expr = ternary();
 
@@ -214,6 +290,7 @@ public class Parser {
     }
 
     private Expression ternary() {
+        if (match(MATCH)) return matchExpression();
         Expression expr = or();
 
         if (match(TokenType.QUESTION)) {
