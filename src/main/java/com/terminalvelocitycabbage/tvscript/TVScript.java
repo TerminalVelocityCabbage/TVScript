@@ -138,12 +138,6 @@ public class TVScript {
         }
     }
 
-    public static void reset() {
-        hadError = false;
-        hadRuntimeError = false;
-        interpreter.reset();
-    }
-
     private static void report(int line, String where, String message) {
         System.err.println("[line " + line + "] Error" + where + ": " + message);
         hadError = true;
