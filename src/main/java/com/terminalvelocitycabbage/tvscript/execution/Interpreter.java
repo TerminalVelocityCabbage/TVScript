@@ -1,10 +1,19 @@
-package com.terminalvelocitycabbage.tvscript;
+package com.terminalvelocitycabbage.tvscript.execution;
 
+import com.terminalvelocitycabbage.tvscript.TVScript;
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
+import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
+import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
 import java.util.List;
 
+/**
+ * Executes the AST by visiting each node.
+ */
 public class Interpreter implements Expression.Visitor<Object>, Statement.Visitor<Void> {
 
     private static class BreakException extends RuntimeException {
@@ -26,6 +35,14 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private Environment environment = new Environment();
 
+    public void reset() {
+        environment = new Environment();
+    }
+
+    /**
+     * Interprets a list of statements.
+     * @param statements The statements to interpret.
+     */
     public void interpret(List<Statement> statements) {
         try {
             for (Statement statement : statements) {
@@ -41,37 +58,42 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         stmt.accept(this);
     }
 
+    /**
+     * Evaluates an expression.
+     * @param expression The expression to evaluate.
+     * @return The result of the evaluation.
+     */
     public Object evaluate(Expression expression) {
         if (expression == null) return null;
         return expression.accept(this);
     }
 
     @Override
-    public Object visitBinaryExpr(Expression.Binary expr) {
-        Object left = evaluate(expr.left);
-        Object right = evaluate(expr.right);
+    public Object visitBinaryExpression(BinaryExpression expr) {
+        Object left = evaluate(expr.left());
+        Object right = evaluate(expr.right());
 
-        switch (expr.operator.getType()) {
+        switch (expr.operator().getType()) {
             case GREATER:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left > (int) right;
                 }
                 return ((Number) left).doubleValue() > ((Number) right).doubleValue();
             case GREATER_EQUAL:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left >= (int) right;
                 }
                 return ((Number) left).doubleValue() >= ((Number) right).doubleValue();
             case LESS:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left < (int) right;
                 }
                 return ((Number) left).doubleValue() < ((Number) right).doubleValue();
             case LESS_EQUAL:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left <= (int) right;
                 }
@@ -79,147 +101,145 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             case BANG_EQUAL: return !isEqual(left, right);
             case EQUAL_EQUAL: return isEqual(left, right);
             case MINUS:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left - (int) right;
                 }
                 return ((Number) left).doubleValue() - ((Number) right).doubleValue();
             case PLUS:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left + (int) right;
                 }
                 return ((Number) left).doubleValue() + ((Number) right).doubleValue();
             case SLASH:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
-                    if ((int) right == 0) throw new RuntimeError(expr.operator, "Division by zero.");
+                    if ((int) right == 0) throw new RuntimeError(expr.operator(), "Division by zero.");
                     return (int) left / (int) right;
                 }
                 return ((Number) left).doubleValue() / ((Number) right).doubleValue();
             case STAR:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
                     return (int) left * (int) right;
                 }
                 return ((Number) left).doubleValue() * ((Number) right).doubleValue();
             case PERCENT:
-                checkNumberOperands(expr.operator, left, right);
+                checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
-                    if ((int) right == 0) throw new RuntimeError(expr.operator, "Modulo by zero.");
+                    if ((int) right == 0) throw new RuntimeError(expr.operator(), "Modulo by zero.");
                     return (int) left % (int) right;
                 }
                 return ((Number) left).doubleValue() % ((Number) right).doubleValue();
+            default:
+                return null;
         }
-
-        // Unreachable
-        return null;
     }
 
     @Override
-    public Object visitGroupingExpr(Expression.Grouping expr) {
-        return evaluate(expr.expression);
+    public Object visitGroupingExpression(GroupingExpression expr) {
+        return evaluate(expr.expression());
     }
 
     @Override
-    public Object visitLiteralExpr(Expression.Literal expr) {
-        return expr.value;
+    public Object visitLiteralExpression(LiteralExpression expr) {
+        return expr.value();
     }
 
     @Override
-    public Object visitLogicalExpr(Expression.Logical expr) {
-        Object left = evaluate(expr.left);
+    public Object visitLogicalExpression(LogicalExpression expr) {
+        Object left = evaluate(expr.left());
 
-        if (expr.operator.getType() == TokenType.OR) {
-            if (isTruthy(expr.operator, left)) return left;
+        if (expr.operator().getType() == TokenType.OR) {
+            if (isTruthy(expr.operator(), left)) return left;
         } else {
-            if (!isTruthy(expr.operator, left)) return left;
+            if (!isTruthy(expr.operator(), left)) return left;
         }
 
-        Object right = evaluate(expr.right);
-        isTruthy(expr.operator, right); // Ensure right side is also a boolean
+        Object right = evaluate(expr.right());
+        isTruthy(expr.operator(), right); // Ensure right side is also a boolean
         return right;
     }
 
     @Override
-    public Object visitUnaryExpr(Expression.Unary expr) {
-        Object right = evaluate(expr.right);
+    public Object visitUnaryExpression(UnaryExpression expr) {
+        Object right = evaluate(expr.right());
 
-        switch (expr.operator.getType()) {
+        switch (expr.operator().getType()) {
             case BANG:
-                return !isTruthy(expr.operator, right);
+                return !isTruthy(expr.operator(), right);
             case MINUS:
-                checkNumberOperand(expr.operator, right);
+                checkNumberOperand(expr.operator(), right);
                 if (right instanceof Integer) return -(int) right;
                 return -(double) right;
+            default:
+                return null;
         }
-
-        // Unreachable
-        return null;
     }
 
     @Override
-    public Object visitTernaryExpr(Expression.Ternary expr) {
-        Object condition = evaluate(expr.condition);
+    public Object visitTernaryExpression(TernaryExpression expr) {
+        Object condition = evaluate(expr.condition());
 
-        if (isTruthy(expr.operator, condition)) {
-            return evaluate(expr.trueBranch);
+        if (isTruthy(expr.operator(), condition)) {
+            return evaluate(expr.thenBranch());
         } else {
-            return evaluate(expr.falseBranch);
+            return evaluate(expr.elseBranch());
         }
     }
 
     @Override
-    public Object visitInterpolationExpr(Expression.Interpolation expr) {
+    public Object visitInterpolationExpression(InterpolationExpression expr) {
         StringBuilder builder = new StringBuilder();
-        for (Expression expression : expr.expressions) {
+        for (Expression expression : expr.expressions()) {
             builder.append(stringify(evaluate(expression)));
         }
         return builder.toString();
     }
 
     @Override
-    public Object visitVariableExpr(Expression.Variable expr) {
-        return environment.get(expr.name);
+    public Object visitVariableExpression(VariableExpression expr) {
+        return environment.get(expr.name());
     }
 
     @Override
-    public Object visitAssignExpr(Expression.Assign expr) {
-        Object value = evaluate(expr.value);
-        environment.assign(expr.name, value);
+    public Object visitAssignExpression(AssignExpression expr) {
+        Object value = evaluate(expr.value());
+        environment.assign(expr.name(), value);
         return value;
     }
 
     @Override
-    public Object visitRangeExpr(Expression.Range expr) {
-        Object start = evaluate(expr.start);
-        Object end = evaluate(expr.end);
+    public Object visitRangeExpression(RangeExpression expr) {
+        Object start = evaluate(expr.start());
+        Object end = evaluate(expr.end());
 
         if (!(start instanceof Integer) || !(end instanceof Integer)) {
-            throw new RuntimeError(expr.operator, "Range bounds must be integers.");
+            throw new RuntimeError(expr.operator(), "Range bounds must be integers.");
         }
 
         return new RangeValue((int) start, (int) end);
     }
 
     @Override
-    public Object visitMatchExpr(Expression.Match expr) {
-        Object condition = evaluate(expr.condition);
+    public Object visitMatchExpression(MatchExpression expr) {
+        Object condition = evaluate(expr.condition());
 
-        for (Expression.Case matchCase : expr.cases) {
-            for (Expression pattern : matchCase.patterns) {
+        for (MatchExpression.Case matchCase : expr.cases()) {
+            for (Expression pattern : matchCase.patterns()) {
                 Object patternValue = evaluate(pattern);
                 if (matchPattern(condition, patternValue)) {
-                    return evaluate(matchCase.branch);
+                    return evaluate(matchCase.branch());
                 }
             }
         }
 
-        if (expr.defaultBranch != null) {
-            return evaluate(expr.defaultBranch);
+        if (expr.defaultBranch() != null) {
+            return evaluate(expr.defaultBranch());
         }
 
-        throw new RuntimeError(expr.keyword, "Match expression not exhaustive.");
+        throw new RuntimeError(expr.keyword(), "Match expression not exhaustive.");
     }
 
     private boolean matchPattern(Object condition, Object pattern) {
@@ -238,8 +258,8 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
-    public Void visitBlockStmt(Statement.Block stmt) {
-        executeBlock(stmt.statements, new Environment(environment));
+    public Void visitBlockStatement(BlockStatement stmt) {
+        executeBlock(stmt.statements(), new Environment(environment));
         return null;
     }
 
@@ -256,27 +276,27 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
-    public Void visitExpressionStmt(Statement.ExpressionStmt stmt) {
-        evaluate(stmt.expression);
+    public Void visitExpressionStatement(ExpressionStatement stmt) {
+        evaluate(stmt.expression());
         return null;
     }
 
     @Override
-    public Void visitIfStmt(Statement.If stmt) {
-        if (isTruthy(stmt.keyword, evaluate(stmt.condition))) {
-            execute(stmt.thenBranch);
-        } else if (stmt.elseBranch != null) {
-            execute(stmt.elseBranch);
+    public Void visitIfStatement(IfStatement stmt) {
+        if (isTruthy(stmt.keyword(), evaluate(stmt.condition()))) {
+            execute(stmt.thenBranch());
+        } else if (stmt.elseBranch() != null) {
+            execute(stmt.elseBranch());
         }
         return null;
     }
 
     @Override
-    public Void visitWhileStmt(Statement.While stmt) {
+    public Void visitWhileStatement(WhileStatement stmt) {
         try {
-            while (isTruthy(stmt.keyword, evaluate(stmt.condition))) {
+            while (isTruthy(stmt.keyword(), evaluate(stmt.condition()))) {
                 try {
-                    execute(stmt.body);
+                    execute(stmt.body());
                 } catch (ContinueException e) {
                     // Do nothing, just continue
                 }
@@ -288,28 +308,25 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
-    public Void visitForStmt(Statement.For stmt) {
-        Object rangeObj = evaluate(stmt.range);
+    public Void visitForStatement(ForStatement stmt) {
+        Object rangeObj = evaluate(stmt.range());
         if (!(rangeObj instanceof RangeValue)) {
-            // This should be caught by type checker, but for safety:
-            throw new RuntimeError(stmt.keyword, "Expected range in for loop.");
+            throw new RuntimeError(stmt.keyword(), "Expected range in for loop.");
         }
         RangeValue range = (RangeValue) rangeObj;
 
         Environment previous = this.environment;
         try {
             for (int i = range.start; i <= range.end; i++) {
-                if (stmt.name != null) {
-                    // Create a new environment for each iteration to hold the loop variable
+                if (stmt.name() != null) {
                     this.environment = new Environment(previous);
-                    this.environment.define(stmt.name, i, stmt.type.getType(), false);
+                    this.environment.define(stmt.name(), i, stmt.type().getType(), false);
                 } else {
-                    // Even if no variable, we might want a new scope for variables defined in the body
                     this.environment = new Environment(previous);
                 }
 
                 try {
-                    execute(stmt.body);
+                    execute(stmt.body());
                 } catch (ContinueException e) {
                     // continue
                 } finally {
@@ -325,64 +342,64 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
-    public Void visitBreakStmt(Statement.Break stmt) {
+    public Void visitBreakStatement(BreakStatement stmt) {
         throw new BreakException();
     }
 
     @Override
-    public Void visitContinueStmt(Statement.Continue stmt) {
+    public Void visitContinueStatement(ContinueStatement stmt) {
         throw new ContinueException();
     }
 
     @Override
-    public Void visitPrintStmt(Statement.Print stmt) {
-        Object value = evaluate(stmt.expression);
+    public Void visitPrintStatement(PrintStatement stmt) {
+        Object value = evaluate(stmt.expression());
         System.out.println(stringify(value));
         return null;
     }
 
     @Override
-    public Void visitVarStmt(Statement.Var stmt) {
+    public Void visitVarStatement(VarStatement stmt) {
         Object value = null;
-        if (stmt.initializer != null) {
-            value = evaluate(stmt.initializer);
+        if (stmt.initializer() != null) {
+            value = evaluate(stmt.initializer());
         }
 
         TokenType type;
-        if (stmt.type.getType() == TokenType.VAR || stmt.type.getType() == TokenType.CONST) {
+        if (stmt.type().getType() == TokenType.VAR || stmt.type().getType() == TokenType.CONST) {
             type = inferType(value);
             if (type == null) {
-                throw new RuntimeError(stmt.name, "Cannot infer type from 'none'.");
+                throw new RuntimeError(stmt.name(), "Cannot infer type from 'none'.");
             }
         } else {
-            type = stmt.type.getType();
+            type = stmt.type().getType();
         }
 
-        environment.define(stmt.name, value, type, stmt.isConst);
+        environment.define(stmt.name(), value, type, stmt.isConst());
         return null;
     }
 
     @Override
-    public Void visitPassStmt(Statement.Pass stmt) {
+    public Void visitPassStatement(PassStatement stmt) {
         return null;
     }
 
     @Override
-    public Void visitMatchStmt(Statement.Match stmt) {
-        Object condition = evaluate(stmt.condition);
+    public Void visitMatchStatement(MatchStatement stmt) {
+        Object condition = evaluate(stmt.condition());
 
-        for (Statement.Case matchCase : stmt.cases) {
-            for (Expression pattern : matchCase.patterns) {
+        for (MatchStatement.Case matchCase : stmt.cases()) {
+            for (Expression pattern : matchCase.patterns()) {
                 Object patternValue = evaluate(pattern);
                 if (matchPattern(condition, patternValue)) {
-                    execute(matchCase.branch);
+                    execute(matchCase.branch());
                     return null;
                 }
             }
         }
 
-        if (stmt.defaultBranch != null) {
-            execute(stmt.defaultBranch);
+        if (stmt.defaultBranch() != null) {
+            execute(stmt.defaultBranch());
         }
 
         return null;
@@ -409,7 +426,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private boolean isTruthy(Token operator, Object object) {
         if (object instanceof Boolean) return (boolean) object;
-        if (operator == null) return false; // Default for if condition if not boolean?
+        if (operator == null) return false;
         throw new RuntimeError(operator, "Expected boolean value.");
     }
 

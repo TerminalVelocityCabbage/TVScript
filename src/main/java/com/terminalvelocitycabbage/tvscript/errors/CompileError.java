@@ -1,4 +1,6 @@
-package com.terminalvelocitycabbage.tvscript;
+package com.terminalvelocitycabbage.tvscript.errors;
+
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
 
 public class CompileError extends RuntimeException {
     public final Token token;

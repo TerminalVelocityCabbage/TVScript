@@ -1,6 +1,7 @@
-package com.terminalvelocitycabbage.tvscript;
+package com.terminalvelocitycabbage.tvscript.parsing;
 
 public class Token {
+
     final TokenType type;
     final String lexeme;
     final Object value;

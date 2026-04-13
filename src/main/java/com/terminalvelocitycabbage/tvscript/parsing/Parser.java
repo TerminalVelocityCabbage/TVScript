@@ -1,12 +1,21 @@
-package com.terminalvelocitycabbage.tvscript;
+package com.terminalvelocitycabbage.tvscript.parsing;
 
+import com.terminalvelocitycabbage.tvscript.TVScript;
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
+import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
+
 import java.util.ArrayList;
 import java.util.List;
-import static com.terminalvelocitycabbage.tvscript.TokenType.*;
 
+import static com.terminalvelocitycabbage.tvscript.parsing.TokenType.*;
+
+/**
+ * Parses a list of tokens into an Abstract Syntax Tree (AST).
+ */
 public class Parser {
+
     private static class ParseError extends RuntimeException {}
 
     private final List<Token> tokens;
@@ -16,6 +25,10 @@ public class Parser {
         this.tokens = tokens;
     }
 
+    /**
+     * Parses the tokens into a list of statements.
+     * @return A list of statements.
+     */
     public List<Statement> parseStatements() {
         List<Statement> statements = new ArrayList<>();
         while (!isAtEnd()) {
@@ -26,6 +39,10 @@ public class Parser {
         return statements;
     }
 
+    /**
+     * Parses a single expression.
+     * @return The parsed expression, or null if a parse error occurred.
+     */
     public Expression parse() {
         try {
             return expression();
@@ -65,7 +82,7 @@ public class Parser {
             throw new ParseError();
         }
 
-        return new Statement.Var(finalType, name, initializer, isConst);
+        return new VarStatement(finalType, name, initializer, isConst);
     }
 
     private Statement statement() {
@@ -77,7 +94,7 @@ public class Parser {
         if (match(CONTINUE)) return continueStatement();
         if (match(PRINT)) return printStatement();
         if (match(PASS)) return passStatement();
-        if (match(INDENT)) return new Statement.Block(block());
+        if (match(INDENT)) return new BlockStatement(block());
 
         return expressionStatement();
     }
@@ -90,12 +107,12 @@ public class Parser {
         Statement body;
         if (match(NEWLINE)) {
             consume(INDENT, "Expect indentation after newline in while statement.");
-            body = new Statement.Block(block());
+            body = new BlockStatement(block());
         } else {
             body = statement();
         }
 
-        return new Statement.While(keyword, condition, body);
+        return new WhileStatement(keyword, condition, body);
     }
 
     private Statement forStatement() {
@@ -120,22 +137,22 @@ public class Parser {
         Statement body;
         if (match(NEWLINE)) {
             consume(INDENT, "Expect indentation after newline in for statement.");
-            body = new Statement.Block(block());
+            body = new BlockStatement(block());
         } else {
             body = statement();
         }
 
-        return new Statement.For(keyword, type, name, range, body);
+        return new ForStatement(keyword, type, name, range, body);
     }
 
     private Statement breakStatement() {
         Token keyword = previous();
-        return new Statement.Break(keyword);
+        return new BreakStatement(keyword);
     }
 
     private Statement continueStatement() {
         Token keyword = previous();
-        return new Statement.Continue(keyword);
+        return new ContinueStatement(keyword);
     }
 
     private Statement ifStatement() {
@@ -146,7 +163,7 @@ public class Parser {
         Statement thenBranch;
         if (match(NEWLINE)) {
             consume(INDENT, "Expect indentation after newline in if statement.");
-            thenBranch = new Statement.Block(block());
+            thenBranch = new BlockStatement(block());
         } else {
             thenBranch = statement();
         }
@@ -156,23 +173,23 @@ public class Parser {
             consume(COLON, "Expect ':' after else.");
             if (match(NEWLINE)) {
                 consume(INDENT, "Expect indentation after newline in else statement.");
-                elseBranch = new Statement.Block(block());
+                elseBranch = new BlockStatement(block());
             } else {
                 elseBranch = statement();
             }
         }
 
-        return new Statement.If(keyword, condition, thenBranch, elseBranch);
+        return new IfStatement(keyword, condition, thenBranch, elseBranch);
     }
 
     private Statement printStatement() {
         Token keyword = previous();
         Expression value = expression();
-        return new Statement.Print(keyword, value);
+        return new PrintStatement(keyword, value);
     }
 
     private Statement passStatement() {
-        return new Statement.Pass();
+        return new PassStatement();
     }
 
     private Statement matchStatement() {
@@ -182,7 +199,7 @@ public class Parser {
         consume(NEWLINE, "Expect newline after match condition.");
         consume(INDENT, "Expect indentation after match statement.");
 
-        List<Statement.Case> cases = new ArrayList<>();
+        List<MatchStatement.Case> cases = new ArrayList<>();
         Statement defaultBranch = null;
 
         while (!check(DEDENT) && !isAtEnd()) {
@@ -190,7 +207,7 @@ public class Parser {
                 consume(COLON, "Expect ':' after default.");
                 if (match(NEWLINE)) {
                     consume(INDENT, "Expect indentation after default block.");
-                    defaultBranch = new Statement.Block(block());
+                    defaultBranch = new BlockStatement(block());
                 } else {
                     defaultBranch = statement();
                     while (match(NEWLINE));
@@ -205,17 +222,17 @@ public class Parser {
                 Statement branch;
                 if (match(NEWLINE)) {
                     consume(INDENT, "Expect indentation after match case block.");
-                    branch = new Statement.Block(block());
+                    branch = new BlockStatement(block());
                 } else {
                     branch = statement();
                     while (match(NEWLINE));
                 }
-                cases.add(new Statement.Case(patterns, branch));
+                cases.add(new MatchStatement.Case(patterns, branch));
             }
         }
 
         consume(DEDENT, "Expect dedent after match cases.");
-        return new Statement.Match(keyword, condition, cases, defaultBranch);
+        return new MatchStatement(keyword, condition, cases, defaultBranch);
     }
 
     private List<Statement> block() {
@@ -232,7 +249,7 @@ public class Parser {
 
     private Statement expressionStatement() {
         Expression expr = expression();
-        return new Statement.ExpressionStmt(expr);
+        return new ExpressionStatement(expr);
     }
 
     private Expression expression() {
@@ -246,7 +263,7 @@ public class Parser {
         consume(NEWLINE, "Expect newline after match condition.");
         consume(INDENT, "Expect indentation after match expression.");
 
-        List<Expression.Case> cases = new ArrayList<>();
+        List<MatchExpression.Case> cases = new ArrayList<>();
         Expression defaultBranch = null;
 
         while (!check(DEDENT) && !isAtEnd()) {
@@ -262,13 +279,13 @@ public class Parser {
 
                 consume(COLON, "Expect ':' after match patterns.");
                 Expression branch = expression();
-                cases.add(new Expression.Case(patterns, branch));
+                cases.add(new MatchExpression.Case(patterns, branch));
                 while (match(NEWLINE));
             }
         }
 
         consume(DEDENT, "Expect dedent after match cases.");
-        return new Expression.Match(keyword, condition, cases, defaultBranch);
+        return new MatchExpression(keyword, condition, cases, defaultBranch);
     }
 
     private Expression assignment() {
@@ -278,9 +295,9 @@ public class Parser {
             Token equals = previous();
             Expression value = assignment();
 
-            if (expr instanceof Expression.Variable) {
-                Token name = ((Expression.Variable)expr).name;
-                return new Expression.Assign(name, value);
+            if (expr instanceof VariableExpression) {
+                Token name = ((VariableExpression)expr).name();
+                return new AssignExpression(name, value);
             }
 
             TVScript.error(equals, "Invalid assignment target.");
@@ -293,12 +310,12 @@ public class Parser {
         if (match(MATCH)) return matchExpression();
         Expression expr = or();
 
-        if (match(TokenType.QUESTION)) {
+        if (match(QUESTION)) {
             Token operator = previous();
             Expression trueBranch = expression();
-            consume(TokenType.COLON, "Expect ':' after ternary condition.");
+            consume(COLON, "Expect ':' after ternary condition.");
             Expression falseBranch = ternary();
-            expr = new Expression.Ternary(expr, operator, trueBranch, falseBranch);
+            expr = new TernaryExpression(expr, operator, trueBranch, falseBranch);
         }
 
         return expr;
@@ -307,10 +324,10 @@ public class Parser {
     private Expression or() {
         Expression expr = and();
 
-        while (match(TokenType.OR)) {
+        while (match(OR)) {
             Token operator = previous();
             Expression right = and();
-            expr = new Expression.Logical(expr, operator, right);
+            expr = new LogicalExpression(expr, operator, right);
         }
 
         return expr;
@@ -319,10 +336,10 @@ public class Parser {
     private Expression and() {
         Expression expr = equality();
 
-        while (match(TokenType.AND)) {
+        while (match(AND)) {
             Token operator = previous();
             Expression right = equality();
-            expr = new Expression.Logical(expr, operator, right);
+            expr = new LogicalExpression(expr, operator, right);
         }
 
         return expr;
@@ -331,10 +348,10 @@ public class Parser {
     private Expression equality() {
         Expression expr = comparison();
 
-        while (match(TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL)) {
+        while (match(BANG_EQUAL, EQUAL_EQUAL)) {
             Token operator = previous();
             Expression right = comparison();
-            expr = new Expression.Binary(expr, operator, right);
+            expr = new BinaryExpression(expr, operator, right);
         }
 
         return expr;
@@ -343,10 +360,10 @@ public class Parser {
     private Expression comparison() {
         Expression expr = range();
 
-        while (match(TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL)) {
+        while (match(GREATER, GREATER_EQUAL, LESS, LESS_EQUAL)) {
             Token operator = previous();
             Expression right = range();
-            expr = new Expression.Binary(expr, operator, right);
+            expr = new BinaryExpression(expr, operator, right);
         }
 
         return expr;
@@ -358,7 +375,7 @@ public class Parser {
         if (match(DOT_DOT)) {
             Token operator = previous();
             Expression right = term();
-            expr = new Expression.Range(operator, expr, right);
+            expr = new RangeExpression(operator, expr, right);
         }
 
         return expr;
@@ -367,10 +384,10 @@ public class Parser {
     private Expression term() {
         Expression expr = factor();
 
-        while (match(TokenType.MINUS, TokenType.PLUS)) {
+        while (match(MINUS, PLUS)) {
             Token operator = previous();
             Expression right = factor();
-            expr = new Expression.Binary(expr, operator, right);
+            expr = new BinaryExpression(expr, operator, right);
         }
 
         return expr;
@@ -379,66 +396,66 @@ public class Parser {
     private Expression factor() {
         Expression expr = unary();
 
-        while (match(TokenType.SLASH, TokenType.STAR, TokenType.PERCENT)) {
+        while (match(SLASH, STAR, PERCENT)) {
             Token operator = previous();
             Expression right = unary();
-            expr = new Expression.Binary(expr, operator, right);
+            expr = new BinaryExpression(expr, operator, right);
         }
 
         return expr;
     }
 
     private Expression unary() {
-        if (match(TokenType.BANG, TokenType.MINUS)) {
+        if (match(BANG, MINUS)) {
             Token operator = previous();
             Expression right = unary();
-            return new Expression.Unary(operator, right);
+            return new UnaryExpression(operator, right);
         }
 
         return primary();
     }
 
     private Expression primary() {
-        if (match(TokenType.FALSE)) return new Expression.Literal(false);
-        if (match(TokenType.TRUE)) return new Expression.Literal(true);
-        if (match(TokenType.NONE)) return new Expression.Literal(null);
+        if (match(FALSE)) return new LiteralExpression(false);
+        if (match(TRUE)) return new LiteralExpression(true);
+        if (match(NONE)) return new LiteralExpression(null);
 
-        if (match(TokenType.STRING)) {
-            return new Expression.Literal(previous().getValue());
+        if (match(STRING)) {
+            return new LiteralExpression(previous().getValue());
         }
 
-        if (match(TokenType.STRING_PART)) {
-            java.util.List<Expression> expressions = new java.util.ArrayList<>();
-            expressions.add(new Expression.Literal(previous().getValue()));
+        if (match(STRING_PART)) {
+            List<Expression> expressions = new ArrayList<>();
+            expressions.add(new LiteralExpression(previous().getValue()));
             while (true) {
-                consume(TokenType.LEFT_BRACE, "Expect '{' to start interpolation.");
+                consume(LEFT_BRACE, "Expect '{' to start interpolation.");
                 expressions.add(expression());
-                consume(TokenType.RIGHT_BRACE, "Expect '}' after interpolation.");
+                consume(RIGHT_BRACE, "Expect '}' after interpolation.");
 
-                if (match(TokenType.STRING_PART)) {
-                    expressions.add(new Expression.Literal(previous().getValue()));
-                } else if (match(TokenType.STRING)) {
-                    expressions.add(new Expression.Literal(previous().getValue()));
+                if (match(STRING_PART)) {
+                    expressions.add(new LiteralExpression(previous().getValue()));
+                } else if (match(STRING)) {
+                    expressions.add(new LiteralExpression(previous().getValue()));
                     break;
                 } else {
                     break;
                 }
             }
-            return new Expression.Interpolation(expressions);
+            return new InterpolationExpression(expressions);
         }
 
-        if (match(TokenType.INTEGER, TokenType.DECIMAL)) {
-            return new Expression.Literal(previous().getValue());
+        if (match(INTEGER, DECIMAL)) {
+            return new LiteralExpression(previous().getValue());
         }
 
-        if (match(TokenType.IDENTIFIER)) {
-            return new Expression.Variable(previous());
+        if (match(IDENTIFIER)) {
+            return new VariableExpression(previous());
         }
 
-        if (match(TokenType.LEFT_PAREN)) {
+        if (match(LEFT_PAREN)) {
             Expression expr = expression();
-            consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
-            return new Expression.Grouping(expr);
+            consume(RIGHT_PAREN, "Expect ')' after expression.");
+            return new GroupingExpression(expr);
         }
 
         throw error(peek(), "Expect expression.");
@@ -470,7 +487,7 @@ public class Parser {
     }
 
     private boolean isAtEnd() {
-        return peek().getType() == TokenType.EOF;
+        return peek().getType() == EOF;
     }
 
     private Token peek() {
@@ -486,11 +503,10 @@ public class Parser {
         return new ParseError();
     }
 
-    // Synchronization logic placeholder
     private void synchronize() {
         advance();
         while (!isAtEnd()) {
-            if (previous().getType() == TokenType.NEWLINE) return;
+            if (previous().getType() == NEWLINE) return;
             switch (peek().getType()) {
                 case CLASS:
                 case FUNCTION:

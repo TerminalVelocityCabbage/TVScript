@@ -1,202 +1,115 @@
 package com.terminalvelocitycabbage.tvscript.ast;
 
-import com.terminalvelocitycabbage.tvscript.Token;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import java.util.List;
 
-public abstract class Expression {
-    public interface Visitor<R> {
-        R visitBinaryExpr(Binary expr);
-        R visitGroupingExpr(Grouping expr);
-        R visitLiteralExpr(Literal expr);
-        R visitLogicalExpr(Logical expr);
-        R visitUnaryExpr(Unary expr);
-        R visitTernaryExpr(Ternary expr);
-        R visitInterpolationExpr(Interpolation expr);
-        R visitVariableExpr(Variable expr);
-        R visitAssignExpr(Assign expr);
-        R visitRangeExpr(Range expr);
-        R visitMatchExpr(Match expr);
+/**
+ * Base interface for all expressions in TVScript.
+ */
+public interface Expression {
+
+    /**
+     * Visitor interface for expressions.
+     * @param <R> The return type of the visitor methods.
+     */
+    interface Visitor<R> {
+        R visitBinaryExpression(BinaryExpression expr);
+        R visitGroupingExpression(GroupingExpression expr);
+        R visitLiteralExpression(LiteralExpression expr);
+        R visitLogicalExpression(LogicalExpression expr);
+        R visitUnaryExpression(UnaryExpression expr);
+        R visitTernaryExpression(TernaryExpression expr);
+        R visitInterpolationExpression(InterpolationExpression expr);
+        R visitVariableExpression(VariableExpression expr);
+        R visitAssignExpression(AssignExpression expr);
+        R visitRangeExpression(RangeExpression expr);
+        R visitMatchExpression(MatchExpression expr);
     }
 
-    public abstract <R> R accept(Visitor<R> visitor);
+    /**
+     * Accepts a visitor.
+     * @param visitor The visitor to accept.
+     * @param <R> The return type of the visitor.
+     * @return The result of the visitor.
+     */
+    <R> R accept(Visitor<R> visitor);
 
-    public static class Binary extends Expression {
-        public final Expression left;
-        public final Token operator;
-        public final Expression right;
-
-        public Binary(Expression left, Token operator, Expression right) {
-            this.left = left;
-            this.operator = operator;
-            this.right = right;
-        }
-
+    record BinaryExpression(Expression left, Token operator, Expression right) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitBinaryExpr(this);
+            return visitor.visitBinaryExpression(this);
         }
     }
 
-    public static class Grouping extends Expression {
-        public final Expression expression;
-
-        public Grouping(Expression expression) {
-            this.expression = expression;
-        }
-
+    record GroupingExpression(Expression expression) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitGroupingExpr(this);
+            return visitor.visitGroupingExpression(this);
         }
     }
 
-    public static class Literal extends Expression {
-        public final Object value;
-
-        public Literal(Object value) {
-            this.value = value;
-        }
-
+    record LiteralExpression(Object value) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitLiteralExpr(this);
+            return visitor.visitLiteralExpression(this);
         }
     }
 
-    public static class Logical extends Expression {
-        public final Expression left;
-        public final Token operator;
-        public final Expression right;
-
-        public Logical(Expression left, Token operator, Expression right) {
-            this.left = left;
-            this.operator = operator;
-            this.right = right;
-        }
-
+    record LogicalExpression(Expression left, Token operator, Expression right) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitLogicalExpr(this);
+            return visitor.visitLogicalExpression(this);
         }
     }
 
-    public static class Unary extends Expression {
-        public final Token operator;
-        public final Expression right;
-
-        public Unary(Token operator, Expression right) {
-            this.operator = operator;
-            this.right = right;
-        }
-
+    record UnaryExpression(Token operator, Expression right) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitUnaryExpr(this);
+            return visitor.visitUnaryExpression(this);
         }
     }
 
-    public static class Variable extends Expression {
-        public final Token name;
-
-        public Variable(Token name) {
-            this.name = name;
-        }
-
+    record TernaryExpression(Expression condition, Token operator, Expression thenBranch, Expression elseBranch) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitVariableExpr(this);
+            return visitor.visitTernaryExpression(this);
         }
     }
 
-    public static class Ternary extends Expression {
-        public final Expression condition;
-        public final Token operator;
-        public final Expression trueBranch;
-        public final Expression falseBranch;
-
-        public Ternary(Expression condition, Token operator, Expression trueBranch, Expression falseBranch) {
-            this.condition = condition;
-            this.operator = operator;
-            this.trueBranch = trueBranch;
-            this.falseBranch = falseBranch;
-        }
-
+    record InterpolationExpression(List<Expression> expressions) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitTernaryExpr(this);
+            return visitor.visitInterpolationExpression(this);
         }
     }
 
-    public static class Interpolation extends Expression {
-        public final java.util.List<Expression> expressions;
-
-        public Interpolation(java.util.List<Expression> expressions) {
-            this.expressions = expressions;
-        }
-
+    record VariableExpression(Token name) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitInterpolationExpr(this);
+            return visitor.visitVariableExpression(this);
         }
     }
 
-    public static class Assign extends Expression {
-        public final Token name;
-        public final Expression value;
-
-        public Assign(Token name, Expression value) {
-            this.name = name;
-            this.value = value;
-        }
-
+    record AssignExpression(Token name, Expression value) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitAssignExpr(this);
+            return visitor.visitAssignExpression(this);
         }
     }
 
-    public static class Range extends Expression {
-        public final Token operator;
-        public final Expression start;
-        public final Expression end;
-
-        public Range(Token operator, Expression start, Expression end) {
-            this.operator = operator;
-            this.start = start;
-            this.end = end;
-        }
-
+    record RangeExpression(Token operator, Expression start, Expression end) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitRangeExpr(this);
+            return visitor.visitRangeExpression(this);
         }
     }
 
-    public static class Match extends Expression {
-        public final Token keyword;
-        public final Expression condition;
-        public final java.util.List<Case> cases;
-        public final Expression defaultBranch;
-
-        public Match(Token keyword, Expression condition, java.util.List<Case> cases, Expression defaultBranch) {
-            this.keyword = keyword;
-            this.condition = condition;
-            this.cases = cases;
-            this.defaultBranch = defaultBranch;
-        }
-
+    record MatchExpression(Token keyword, Expression condition, List<Case> cases, Expression defaultBranch) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitMatchExpr(this);
+            return visitor.visitMatchExpression(this);
         }
-    }
 
-    public static class Case {
-        public final java.util.List<Expression> patterns;
-        public final Expression branch;
-
-        public Case(java.util.List<Expression> patterns, Expression branch) {
-            this.patterns = patterns;
-            this.branch = branch;
-        }
+        public record Case(List<Expression> patterns, Expression branch) {}
     }
 }

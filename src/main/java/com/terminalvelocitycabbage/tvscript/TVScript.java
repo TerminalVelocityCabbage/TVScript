@@ -1,6 +1,14 @@
 package com.terminalvelocitycabbage.tvscript;
 
+import com.terminalvelocitycabbage.tvscript.analysis.TypeChecker;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import com.terminalvelocitycabbage.tvscript.errors.CompileError;
+import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
+import com.terminalvelocitycabbage.tvscript.execution.Interpreter;
+import com.terminalvelocitycabbage.tvscript.parsing.Parser;
+import com.terminalvelocitycabbage.tvscript.parsing.Scanner;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -10,10 +18,13 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 
+/**
+ * Main entry point for the TVScript language.
+ */
 public class TVScript {
 
-    static boolean hadError = false;
-    static boolean hadRuntimeError = false;
+    public static boolean hadError = false;
+    public static boolean hadRuntimeError = false;
     private static final Interpreter interpreter = new Interpreter();
 
     public static void main(String[] args) throws IOException {
@@ -48,7 +59,7 @@ public class TVScript {
         }
     }
 
-    private static void run(String source) {
+    public static void run(String source) {
         Scanner scanner = new Scanner(source);
         List<Token> tokens = scanner.scanTokens();
         Parser parser = new Parser(tokens);
@@ -70,11 +81,21 @@ public class TVScript {
         }
     }
 
-    static void error(int line, String message) {
+    /**
+     * Reports an error at a specific line.
+     * @param line The line number.
+     * @param message The error message.
+     */
+    public static void error(int line, String message) {
         report(line, "", message);
     }
 
-    static void error(Token token, String message) {
+    /**
+     * Reports an error at a specific token.
+     * @param token The token where the error occurred.
+     * @param message The error message.
+     */
+    public static void error(Token token, String message) {
         if (token.getType() == TokenType.EOF) {
             report(token.getLine(), " at end", message);
         } else {
@@ -82,13 +103,21 @@ public class TVScript {
         }
     }
 
-    static void runtimeError(RuntimeError error) {
+    /**
+     * Reports a runtime error.
+     * @param error The runtime error.
+     */
+    public static void runtimeError(RuntimeError error) {
         System.err.println(error.getMessage() +
                 "\n[line " + error.token.getLine() + "]");
         hadRuntimeError = true;
     }
 
-    static void compileError(CompileError error) {
+    /**
+     * Reports a compilation error.
+     * @param error The compilation error.
+     */
+    public static void compileError(CompileError error) {
         if (error.token.getType() == TokenType.EOF) {
             report(error.token.getLine(), " at end", error.getMessage());
         } else {
@@ -96,12 +125,23 @@ public class TVScript {
         }
     }
 
-    static void warning(Token token, String message) {
+    /**
+     * Reports a warning.
+     * @param token The token where the warning occurred.
+     * @param message The warning message.
+     */
+    public static void warning(Token token, String message) {
         if (token.getType() == TokenType.EOF) {
             System.err.println("[line " + token.getLine() + "] Warning at end: " + message);
         } else {
             System.err.println("[line " + token.getLine() + "] Warning at '" + token.getLexeme() + "': " + message);
         }
+    }
+
+    public static void reset() {
+        hadError = false;
+        hadRuntimeError = false;
+        interpreter.reset();
     }
 
     private static void report(int line, String where, String message) {

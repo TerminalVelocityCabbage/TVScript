@@ -1,202 +1,116 @@
 package com.terminalvelocitycabbage.tvscript.ast;
 
-import com.terminalvelocitycabbage.tvscript.Token;
-
+import com.terminalvelocitycabbage.tvscript.ast.Expression;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import java.util.List;
 
-public abstract class Statement {
-    public interface Visitor<R> {
-        R visitBlockStmt(Block stmt);
-        R visitExpressionStmt(ExpressionStmt stmt);
-        R visitIfStmt(If stmt);
-        R visitPrintStmt(Print stmt);
-        R visitVarStmt(Var stmt);
-        R visitPassStmt(Pass stmt);
-        R visitWhileStmt(While stmt);
-        R visitForStmt(For stmt);
-        R visitBreakStmt(Break stmt);
-        R visitContinueStmt(Continue stmt);
-        R visitMatchStmt(Match stmt);
+/**
+ * Base interface for all statements in TVScript.
+ */
+public interface Statement {
+
+    /**
+     * Visitor interface for statements.
+     * @param <R> The return type of the visitor methods.
+     */
+    interface Visitor<R> {
+        R visitBlockStatement(BlockStatement stmt);
+        R visitExpressionStatement(ExpressionStatement stmt);
+        R visitIfStatement(IfStatement stmt);
+        R visitPrintStatement(PrintStatement stmt);
+        R visitVarStatement(VarStatement stmt);
+        R visitPassStatement(PassStatement stmt);
+        R visitWhileStatement(WhileStatement stmt);
+        R visitForStatement(ForStatement stmt);
+        R visitBreakStatement(BreakStatement stmt);
+        R visitContinueStatement(ContinueStatement stmt);
+        R visitMatchStatement(MatchStatement stmt);
     }
 
-    public abstract <R> R accept(Visitor<R> visitor);
+    /**
+     * Accepts a visitor.
+     * @param visitor The visitor to accept.
+     * @param <R> The return type of the visitor.
+     * @return The result of the visitor.
+     */
+    <R> R accept(Visitor<R> visitor);
 
-    public static class Block extends Statement {
-        public final List<Statement> statements;
-
-        public Block(List<Statement> statements) {
-            this.statements = statements;
-        }
-
+    record BlockStatement(List<Statement> statements) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitBlockStmt(this);
+            return visitor.visitBlockStatement(this);
         }
     }
 
-    public static class ExpressionStmt extends Statement {
-        public final Expression expression;
-
-        public ExpressionStmt(Expression expression) {
-            this.expression = expression;
-        }
-
+    record ExpressionStatement(Expression expression) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitExpressionStmt(this);
+            return visitor.visitExpressionStatement(this);
         }
     }
 
-    public static class If extends Statement {
-        public final Token keyword;
-        public final Expression condition;
-        public final Statement thenBranch;
-        public final Statement elseBranch;
-
-        public If(Token keyword, Expression condition, Statement thenBranch, Statement elseBranch) {
-            this.keyword = keyword;
-            this.condition = condition;
-            this.thenBranch = thenBranch;
-            this.elseBranch = elseBranch;
-        }
-
+    record IfStatement(Token keyword, Expression condition, Statement thenBranch, Statement elseBranch) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitIfStmt(this);
+            return visitor.visitIfStatement(this);
         }
     }
 
-    public static class Print extends Statement {
-        public final Token keyword;
-        public final Expression expression;
-
-        public Print(Token keyword, Expression expression) {
-            this.keyword = keyword;
-            this.expression = expression;
-        }
-
+    record PrintStatement(Token keyword, Expression expression) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitPrintStmt(this);
+            return visitor.visitPrintStatement(this);
         }
     }
 
-    public static class Var extends Statement {
-        public final Token type; // the type token or VAR/CONST
-        public final Token name;
-        public final Expression initializer;
-        public final boolean isConst;
-
-        public Var(Token type, Token name, Expression initializer, boolean isConst) {
-            this.type = type;
-            this.name = name;
-            this.initializer = initializer;
-            this.isConst = isConst;
-        }
-
+    record VarStatement(Token type, Token name, Expression initializer, boolean isConst) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitVarStmt(this);
+            return visitor.visitVarStatement(this);
         }
     }
 
-    public static class Pass extends Statement {
+    record PassStatement() implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitPassStmt(this);
+            return visitor.visitPassStatement(this);
         }
     }
 
-    public static class While extends Statement {
-        public final Token keyword;
-        public final Expression condition;
-        public final Statement body;
-
-        public While(Token keyword, Expression condition, Statement body) {
-            this.keyword = keyword;
-            this.condition = condition;
-            this.body = body;
-        }
-
+    record WhileStatement(Token keyword, Expression condition, Statement body) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitWhileStmt(this);
+            return visitor.visitWhileStatement(this);
         }
     }
 
-    public static class For extends Statement {
-        public final Token keyword;
-        public final Token type;
-        public final Token name;
-        public final Expression range;
-        public final Statement body;
-
-        public For(Token keyword, Token type, Token name, Expression range, Statement body) {
-            this.keyword = keyword;
-            this.type = type;
-            this.name = name;
-            this.range = range;
-            this.body = body;
-        }
-
+    record ForStatement(Token keyword, Token type, Token name, Expression range, Statement body) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitForStmt(this);
+            return visitor.visitForStatement(this);
         }
     }
 
-    public static class Break extends Statement {
-        public final Token keyword;
-
-        public Break(Token keyword) {
-            this.keyword = keyword;
-        }
-
+    record BreakStatement(Token keyword) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitBreakStmt(this);
+            return visitor.visitBreakStatement(this);
         }
     }
 
-    public static class Continue extends Statement {
-        public final Token keyword;
-
-        public Continue(Token keyword) {
-            this.keyword = keyword;
-        }
-
+    record ContinueStatement(Token keyword) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitContinueStmt(this);
+            return visitor.visitContinueStatement(this);
         }
     }
 
-    public static class Match extends Statement {
-        public final Token keyword;
-        public final Expression condition;
-        public final List<Case> cases;
-        public final Statement defaultBranch;
-
-        public Match(Token keyword, Expression condition, List<Case> cases, Statement defaultBranch) {
-            this.keyword = keyword;
-            this.condition = condition;
-            this.cases = cases;
-            this.defaultBranch = defaultBranch;
-        }
-
+    record MatchStatement(Token keyword, Expression condition, List<Case> cases, Statement defaultBranch) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
-            return visitor.visitMatchStmt(this);
+            return visitor.visitMatchStatement(this);
         }
-    }
 
-    public static class Case {
-        public final List<Expression> patterns;
-        public final Statement branch;
-
-        public Case(List<Expression> patterns, Statement branch) {
-            this.patterns = patterns;
-            this.branch = branch;
-        }
+        public record Case(List<Expression> patterns, Statement branch) {}
     }
 }

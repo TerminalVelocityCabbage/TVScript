@@ -1,12 +1,23 @@
-package com.terminalvelocitycabbage.tvscript;
+package com.terminalvelocitycabbage.tvscript.execution;
+
+import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Manages variable bindings and scopes during execution.
+ */
 public class Environment {
+
     private final Environment enclosing;
     private final Map<String, VariableInfo> values = new HashMap<>();
 
+    /**
+     * Information about a variable.
+     */
     public static class VariableInfo {
         public Object value;
         public final TokenType type;
@@ -19,14 +30,28 @@ public class Environment {
         }
     }
 
+    /**
+     * Creates a new global environment.
+     */
     public Environment() {
         this.enclosing = null;
     }
 
+    /**
+     * Creates a new environment nested within the given enclosing environment.
+     * @param enclosing The enclosing environment.
+     */
     public Environment(Environment enclosing) {
         this.enclosing = enclosing;
     }
 
+    /**
+     * Defines a new variable in the current environment.
+     * @param name The name of the variable.
+     * @param value The initial value.
+     * @param type The type of the variable.
+     * @param isConst Whether the variable is constant.
+     */
     public void define(Token name, Object value, TokenType type, boolean isConst) {
         if (isAlreadyDefinedAnywhere(name.getLexeme())) {
             throw new RuntimeError(name, "Variable '" + name.getLexeme() + "' is already defined in this or an outer scope.");
@@ -41,6 +66,11 @@ public class Environment {
         return false;
     }
 
+    /**
+     * Retrieves the value of a variable.
+     * @param name The name of the variable.
+     * @return The value of the variable.
+     */
     public Object get(Token name) {
         if (values.containsKey(name.getLexeme())) {
             return values.get(name.getLexeme()).value;
@@ -51,6 +81,11 @@ public class Environment {
         throw new RuntimeError(name, "Undefined variable '" + name.getLexeme() + "'.");
     }
 
+    /**
+     * Retrieves information about a variable.
+     * @param name The name of the variable.
+     * @return The variable info.
+     */
     public VariableInfo getInfo(Token name) {
         if (values.containsKey(name.getLexeme())) {
             return values.get(name.getLexeme());
@@ -61,6 +96,11 @@ public class Environment {
         throw new RuntimeError(name, "Undefined variable '" + name.getLexeme() + "'.");
     }
 
+    /**
+     * Assigns a new value to an existing variable.
+     * @param name The name of the variable.
+     * @param value The new value.
+     */
     public void assign(Token name, Object value) {
         if (values.containsKey(name.getLexeme())) {
             VariableInfo info = values.get(name.getLexeme());
@@ -111,6 +151,8 @@ public class Environment {
                 if (!(value instanceof Boolean)) {
                     throw new RuntimeError(name, "Expected boolean value but got " + value.getClass().getSimpleName() + ".");
                 }
+                break;
+            default:
                 break;
         }
     }

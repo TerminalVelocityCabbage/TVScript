@@ -1,4 +1,6 @@
-package com.terminalvelocitycabbage.tvscript;
+package com.terminalvelocitycabbage.tvscript.parsing;
+
+import com.terminalvelocitycabbage.tvscript.TVScript;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -7,6 +9,7 @@ import java.util.Map;
 import java.util.Stack;
 
 public class Scanner {
+
     private final String source;
     private final List<Token> tokens = new ArrayList<>();
     private int start = 0;
