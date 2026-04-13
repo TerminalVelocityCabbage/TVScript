@@ -53,11 +53,11 @@ public class Environment {
      * @param isConst Whether the variable is constant.
      */
     public void define(Token name, Object value, TokenType type, boolean isConst) {
-        if (isAlreadyDefinedAnywhere(name.getLexeme())) {
-            throw new RuntimeError(name, "Variable '" + name.getLexeme() + "' is already defined in this or an outer scope.");
+        if (isAlreadyDefinedAnywhere(name.lexeme())) {
+            throw new RuntimeError(name, "Variable '" + name.lexeme() + "' is already defined in this or an outer scope.");
         }
         value = castIfNeeded(type, value);
-        values.put(name.getLexeme(), new VariableInfo(value, type, isConst));
+        values.put(name.lexeme(), new VariableInfo(value, type, isConst));
     }
 
     private boolean isAlreadyDefinedAnywhere(String name) {
@@ -72,13 +72,13 @@ public class Environment {
      * @return The value of the variable.
      */
     public Object get(Token name) {
-        if (values.containsKey(name.getLexeme())) {
-            return values.get(name.getLexeme()).value;
+        if (values.containsKey(name.lexeme())) {
+            return values.get(name.lexeme()).value;
         }
 
         if (enclosing != null) return enclosing.get(name);
 
-        throw new RuntimeError(name, "Undefined variable '" + name.getLexeme() + "'.");
+        throw new RuntimeError(name, "Undefined variable '" + name.lexeme() + "'.");
     }
 
     /**
@@ -87,13 +87,13 @@ public class Environment {
      * @return The variable info.
      */
     public VariableInfo getInfo(Token name) {
-        if (values.containsKey(name.getLexeme())) {
-            return values.get(name.getLexeme());
+        if (values.containsKey(name.lexeme())) {
+            return values.get(name.lexeme());
         }
 
         if (enclosing != null) return enclosing.getInfo(name);
 
-        throw new RuntimeError(name, "Undefined variable '" + name.getLexeme() + "'.");
+        throw new RuntimeError(name, "Undefined variable '" + name.lexeme() + "'.");
     }
 
     /**
@@ -102,10 +102,10 @@ public class Environment {
      * @param value The new value.
      */
     public void assign(Token name, Object value) {
-        if (values.containsKey(name.getLexeme())) {
-            VariableInfo info = values.get(name.getLexeme());
+        if (values.containsKey(name.lexeme())) {
+            VariableInfo info = values.get(name.lexeme());
             if (info.isConst) {
-                throw new RuntimeError(name, "Cannot assign to constant variable '" + name.getLexeme() + "'.");
+                throw new RuntimeError(name, "Cannot assign to constant variable '" + name.lexeme() + "'.");
             }
             value = castIfNeeded(info.type, value);
             checkType(name, info.type, value);
@@ -118,7 +118,7 @@ public class Environment {
             return;
         }
 
-        throw new RuntimeError(name, "Undefined variable '" + name.getLexeme() + "'.");
+        throw new RuntimeError(name, "Undefined variable '" + name.lexeme() + "'.");
     }
 
     private Object castIfNeeded(TokenType type, Object value) {

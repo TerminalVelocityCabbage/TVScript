@@ -1,6 +1,11 @@
 package com.terminalvelocitycabbage.tvscript;
 
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
+import com.terminalvelocitycabbage.tvscript.parsing.Scanner;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.parsing.Parser;
+import com.terminalvelocitycabbage.tvscript.execution.Interpreter;
+import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;

@@ -20,7 +20,7 @@ public class AstPrinter implements Expression.Visitor<String> {
 
     @Override
     public String visitBinaryExpression(BinaryExpression expr) {
-        return parenthesize(expr.operator().getLexeme(), expr.left(), expr.right());
+        return parenthesize(expr.operator().lexeme(), expr.left(), expr.right());
     }
 
     @Override
@@ -36,12 +36,12 @@ public class AstPrinter implements Expression.Visitor<String> {
 
     @Override
     public String visitLogicalExpression(LogicalExpression expr) {
-        return parenthesize(expr.operator().getLexeme(), expr.left(), expr.right());
+        return parenthesize(expr.operator().lexeme(), expr.left(), expr.right());
     }
 
     @Override
     public String visitUnaryExpression(UnaryExpression expr) {
-        return parenthesize(expr.operator().getLexeme(), expr.right());
+        return parenthesize(expr.operator().lexeme(), expr.right());
     }
 
     @Override
@@ -63,12 +63,12 @@ public class AstPrinter implements Expression.Visitor<String> {
 
     @Override
     public String visitVariableExpression(VariableExpression expr) {
-        return expr.name().getLexeme();
+        return expr.name().lexeme();
     }
 
     @Override
     public String visitAssignExpression(AssignExpression expr) {
-        return parenthesize("= " + expr.name().getLexeme(), expr.value());
+        return parenthesize("= " + expr.name().lexeme(), expr.value());
     }
 
     @Override

@@ -73,7 +73,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         Object left = evaluate(expr.left());
         Object right = evaluate(expr.right());
 
-        switch (expr.operator().getType()) {
+        switch (expr.operator().type()) {
             case GREATER:
                 checkNumberOperands(expr.operator(), left, right);
                 if (left instanceof Integer && right instanceof Integer) {
@@ -151,7 +151,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Object visitLogicalExpression(LogicalExpression expr) {
         Object left = evaluate(expr.left());
 
-        if (expr.operator().getType() == TokenType.OR) {
+        if (expr.operator().type() == TokenType.OR) {
             if (isTruthy(expr.operator(), left)) return left;
         } else {
             if (!isTruthy(expr.operator(), left)) return left;
@@ -166,7 +166,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Object visitUnaryExpression(UnaryExpression expr) {
         Object right = evaluate(expr.right());
 
-        switch (expr.operator().getType()) {
+        switch (expr.operator().type()) {
             case BANG:
                 return !isTruthy(expr.operator(), right);
             case MINUS:
@@ -320,7 +320,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             for (int i = range.start; i <= range.end; i++) {
                 if (stmt.name() != null) {
                     this.environment = new Environment(previous);
-                    this.environment.define(stmt.name(), i, stmt.type().getType(), false);
+                    this.environment.define(stmt.name(), i, stmt.type().type(), false);
                 } else {
                     this.environment = new Environment(previous);
                 }
@@ -366,13 +366,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
 
         TokenType type;
-        if (stmt.type().getType() == TokenType.VAR || stmt.type().getType() == TokenType.CONST) {
+        if (stmt.type().type() == TokenType.VAR || stmt.type().type() == TokenType.CONST) {
             type = inferType(value);
             if (type == null) {
                 throw new RuntimeError(stmt.name(), "Cannot infer type from 'none'.");
             }
         } else {
-            type = stmt.type().getType();
+            type = stmt.type().type();
         }
 
         environment.define(stmt.name(), value, type, stmt.isConst());

@@ -117,7 +117,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         beginScope();
         if (stmt.name() != null) {
-            declare(stmt.name(), stmt.type().getType(), false);
+            declare(stmt.name(), stmt.type().type(), false);
         }
 
         loopDepth++;
@@ -180,7 +180,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitVarStatement(VarStatement stmt) {
-        TokenType declaredType = stmt.type().getType();
+        TokenType declaredType = stmt.type().type();
         TokenType inferredType = declaredType;
 
         if (stmt.initializer() != null) {
@@ -212,7 +212,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         TokenType left = check(expr.left());
         TokenType right = check(expr.right());
 
-        switch (expr.operator().getType()) {
+        switch (expr.operator().type()) {
             case GREATER:
             case GREATER_EQUAL:
             case LESS:
@@ -266,7 +266,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     @Override
     public TokenType visitUnaryExpression(UnaryExpression expr) {
         TokenType right = check(expr.right());
-        if (expr.operator().getType() == TokenType.BANG) return TokenType.TYPE_BOOLEAN;
+        if (expr.operator().type() == TokenType.BANG) return TokenType.TYPE_BOOLEAN;
         return right;
     }
 
@@ -379,13 +379,13 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     private void declare(Token name, TokenType type, boolean isConst) {
         // Redefinition in the same scope OR any outer scope is an error in TVScript
-        if (isAlreadyDefined(name.getLexeme())) {
-            TVScript.compileError(new CompileError(name, "Variable '" + name.getLexeme() + "' is already defined in this or an outer scope."));
+        if (isAlreadyDefined(name.lexeme())) {
+            TVScript.compileError(new CompileError(name, "Variable '" + name.lexeme() + "' is already defined in this or an outer scope."));
             return;
         }
 
         Map<String, VariableStaticInfo> scope = scopes.get(scopes.size() - 1);
-        scope.put(name.getLexeme(), new VariableStaticInfo(type, isConst));
+        scope.put(name.lexeme(), new VariableStaticInfo(type, isConst));
     }
 
     private boolean isAlreadyDefined(String name) {
@@ -397,8 +397,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     private VariableStaticInfo lookup(Token name) {
         for (int i = scopes.size() - 1; i >= 0; i--) {
-            if (scopes.get(i).containsKey(name.getLexeme())) {
-                return scopes.get(i).get(name.getLexeme());
+            if (scopes.get(i).containsKey(name.lexeme())) {
+                return scopes.get(i).get(name.lexeme());
             }
         }
         return null;
@@ -422,8 +422,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             @Override public Void visitUnaryExpression(UnaryExpression expr) { expr.right().accept(this); return null; }
             @Override public Void visitTernaryExpression(TernaryExpression expr) { expr.condition().accept(this); expr.thenBranch().accept(this); expr.elseBranch().accept(this); return null; }
             @Override public Void visitInterpolationExpression(InterpolationExpression expr) { for (Expression e : expr.expressions()) e.accept(this); return null; }
-            @Override public Void visitVariableExpression(VariableExpression expr) { vars.add(expr.name().getLexeme()); return null; }
-            @Override public Void visitAssignExpression(AssignExpression expr) { vars.add(expr.name().getLexeme()); expr.value().accept(this); return null; }
+            @Override public Void visitVariableExpression(VariableExpression expr) { vars.add(expr.name().lexeme()); return null; }
+            @Override public Void visitAssignExpression(AssignExpression expr) { vars.add(expr.name().lexeme()); expr.value().accept(this); return null; }
             @Override public Void visitRangeExpression(RangeExpression expr) { expr.start().accept(this); expr.end().accept(this); return null; }
             @Override public Void visitMatchExpression(MatchExpression expr) {
                 expr.condition().accept(this);
@@ -470,7 +470,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 @Override public Void visitTernaryExpression(TernaryExpression expr) { expr.condition().accept(this); expr.thenBranch().accept(this); expr.elseBranch().accept(this); return null; }
                 @Override public Void visitInterpolationExpression(InterpolationExpression expr) { for (Expression e : expr.expressions()) e.accept(this); return null; }
                 @Override public Void visitVariableExpression(VariableExpression expr) { return null; }
-                @Override public Void visitAssignExpression(AssignExpression expr) { if (vars.contains(expr.name().getLexeme())) mutated[0] = true; expr.value().accept(this); return null; }
+                @Override public Void visitAssignExpression(AssignExpression expr) { if (vars.contains(expr.name().lexeme())) mutated[0] = true; expr.value().accept(this); return null; }
                 @Override public Void visitRangeExpression(RangeExpression expr) { expr.start().accept(this); expr.end().accept(this); return null; }
                 @Override public Void visitMatchExpression(MatchExpression expr) {
                     expr.condition().accept(this);

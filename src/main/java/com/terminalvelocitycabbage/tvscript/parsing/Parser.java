@@ -65,7 +65,7 @@ public class Parser {
     }
 
     private Statement varDeclaration(Token typeToken) {
-        boolean isConst = typeToken.getType() == CONST;
+        boolean isConst = typeToken.type() == CONST;
         Token finalType = typeToken;
 
         if (isConst && match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN)) {
@@ -421,21 +421,21 @@ public class Parser {
         if (match(NONE)) return new LiteralExpression(null);
 
         if (match(STRING)) {
-            return new LiteralExpression(previous().getValue());
+            return new LiteralExpression(previous().value());
         }
 
         if (match(STRING_PART)) {
             List<Expression> expressions = new ArrayList<>();
-            expressions.add(new LiteralExpression(previous().getValue()));
+            expressions.add(new LiteralExpression(previous().value()));
             while (true) {
                 consume(LEFT_BRACE, "Expect '{' to start interpolation.");
                 expressions.add(expression());
                 consume(RIGHT_BRACE, "Expect '}' after interpolation.");
 
                 if (match(STRING_PART)) {
-                    expressions.add(new LiteralExpression(previous().getValue()));
+                    expressions.add(new LiteralExpression(previous().value()));
                 } else if (match(STRING)) {
-                    expressions.add(new LiteralExpression(previous().getValue()));
+                    expressions.add(new LiteralExpression(previous().value()));
                     break;
                 } else {
                     break;
@@ -445,7 +445,7 @@ public class Parser {
         }
 
         if (match(INTEGER, DECIMAL)) {
-            return new LiteralExpression(previous().getValue());
+            return new LiteralExpression(previous().value());
         }
 
         if (match(IDENTIFIER)) {
@@ -478,7 +478,7 @@ public class Parser {
 
     private boolean check(TokenType type) {
         if (isAtEnd()) return false;
-        return peek().getType() == type;
+        return peek().type() == type;
     }
 
     private Token advance() {
@@ -487,7 +487,7 @@ public class Parser {
     }
 
     private boolean isAtEnd() {
-        return peek().getType() == EOF;
+        return peek().type() == EOF;
     }
 
     private Token peek() {
@@ -506,8 +506,8 @@ public class Parser {
     private void synchronize() {
         advance();
         while (!isAtEnd()) {
-            if (previous().getType() == NEWLINE) return;
-            switch (peek().getType()) {
+            if (previous().type() == NEWLINE) return;
+            switch (peek().type()) {
                 case CLASS:
                 case FUNCTION:
                 case VAR:

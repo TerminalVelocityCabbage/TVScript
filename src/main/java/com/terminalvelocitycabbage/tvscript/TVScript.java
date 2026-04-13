@@ -96,10 +96,10 @@ public class TVScript {
      * @param message The error message.
      */
     public static void error(Token token, String message) {
-        if (token.getType() == TokenType.EOF) {
-            report(token.getLine(), " at end", message);
+        if (token.type() == TokenType.EOF) {
+            report(token.line(), " at end", message);
         } else {
-            report(token.getLine(), " at '" + token.getLexeme() + "'", message);
+            report(token.line(), " at '" + token.lexeme() + "'", message);
         }
     }
 
@@ -109,7 +109,7 @@ public class TVScript {
      */
     public static void runtimeError(RuntimeError error) {
         System.err.println(error.getMessage() +
-                "\n[line " + error.token.getLine() + "]");
+                "\n[line " + error.token.line() + "]");
         hadRuntimeError = true;
     }
 
@@ -118,10 +118,10 @@ public class TVScript {
      * @param error The compilation error.
      */
     public static void compileError(CompileError error) {
-        if (error.token.getType() == TokenType.EOF) {
-            report(error.token.getLine(), " at end", error.getMessage());
+        if (error.token.type() == TokenType.EOF) {
+            report(error.token.line(), " at end", error.getMessage());
         } else {
-            report(error.token.getLine(), " at '" + error.token.getLexeme() + "'", error.getMessage());
+            report(error.token.line(), " at '" + error.token.lexeme() + "'", error.getMessage());
         }
     }
 
@@ -131,10 +131,10 @@ public class TVScript {
      * @param message The warning message.
      */
     public static void warning(Token token, String message) {
-        if (token.getType() == TokenType.EOF) {
-            System.err.println("[line " + token.getLine() + "] Warning at end: " + message);
+        if (token.type() == TokenType.EOF) {
+            System.err.println("[line " + token.line() + "] Warning at end: " + message);
         } else {
-            System.err.println("[line " + token.getLine() + "] Warning at '" + token.getLexeme() + "': " + message);
+            System.err.println("[line " + token.line() + "] Warning at '" + token.lexeme() + "': " + message);
         }
     }
 
