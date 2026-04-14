@@ -25,6 +25,8 @@ public interface Statement {
         R visitBreakStatement(BreakStatement stmt);
         R visitContinueStatement(ContinueStatement stmt);
         R visitMatchStatement(MatchStatement stmt);
+        R visitFunctionStatement(FunctionStatement stmt);
+        R visitReturnStatement(ReturnStatement stmt);
     }
 
     /**
@@ -112,5 +114,21 @@ public interface Statement {
         }
 
         public record Case(List<Expression> patterns, Statement branch) {}
+    }
+
+    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitFunctionStatement(this);
+        }
+
+        public record Parameter(Token type, Token name, Expression defaultValue) {}
+    }
+
+    record ReturnStatement(Token keyword, Expression value) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitReturnStatement(this);
+        }
     }
 }

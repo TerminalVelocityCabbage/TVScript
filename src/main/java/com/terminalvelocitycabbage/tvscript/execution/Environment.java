@@ -45,6 +45,10 @@ public class Environment {
         this.enclosing = enclosing;
     }
 
+    public void defineNative(String name, Object value) {
+        values.put(name, new VariableInfo(value, TokenType.FUNCTION, true));
+    }
+
     /**
      * Defines a new variable in the current environment.
      * @param name The name of the variable.
@@ -57,6 +61,7 @@ public class Environment {
             throw new RuntimeError(name, "Variable '" + name.lexeme() + "' is already defined in this or an outer scope.");
         }
         value = castIfNeeded(type, value);
+        checkType(name, type, value);
         values.put(name.lexeme(), new VariableInfo(value, type, isConst));
     }
 

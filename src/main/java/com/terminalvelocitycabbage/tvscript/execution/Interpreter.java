@@ -35,8 +35,15 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private Environment environment = new Environment();
 
+    public Interpreter() {
+        environment.defineNative("clock", new TVScriptNativeFunction(0, args -> (double) System.currentTimeMillis() / 1000.0));
+        environment.defineNative("abs", com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions.ABS);
+    }
+
     public void reset() {
         environment = new Environment();
+        environment.defineNative("clock", new TVScriptNativeFunction(0, args -> (double) System.currentTimeMillis() / 1000.0));
+        environment.defineNative("abs", com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions.ABS);
     }
 
     /**
@@ -242,6 +249,28 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         throw new RuntimeError(expr.keyword(), "Match expression not exhaustive.");
     }
 
+    @Override
+    public Object visitCallExpression(CallExpression expr) {
+        Object callee = evaluate(expr.callee());
+
+        if (!(callee instanceof TVScriptCallable)) {
+            throw new RuntimeError(expr.paren(), "Can only call functions and classes.");
+        }
+
+        TVScriptCallable function = (TVScriptCallable) callee;
+        java.util.Map<String, Object> arguments = new java.util.HashMap<>();
+        for (CallExpression.Argument arg : expr.arguments()) {
+            arguments.put(arg.name().lexeme(), evaluate(arg.value()));
+        }
+
+        return function.call(this, arguments, expr.paren());
+    }
+
+    @Override
+    public Object visitFunctionExpression(FunctionExpression expr) {
+        return new TVScriptFunction(expr, environment);
+    }
+
     private boolean matchPattern(Object condition, Object pattern) {
         if (pattern instanceof RangeValue) {
             RangeValue range = (RangeValue) pattern;
@@ -263,7 +292,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         return null;
     }
 
-    private void executeBlock(List<Statement> statements, Environment environment) {
+    public void executeBlock(List<Statement> statements, Environment environment) {
         Environment previous = this.environment;
         try {
             this.environment = environment;
@@ -352,6 +381,21 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Void visitFunctionStatement(FunctionStatement stmt) {
+        TVScriptFunction function = new TVScriptFunction(stmt, environment);
+        environment.define(stmt.name(), function, TokenType.FUNCTION, true);
+        return null;
+    }
+
+    @Override
+    public Void visitReturnStatement(ReturnStatement stmt) {
+        Object value = null;
+        if (stmt.value() != null) value = evaluate(stmt.value());
+
+        throw new TVScriptFunction.Return(value);
+    }
+
+    @Override
     public Void visitPrintStatement(PrintStatement stmt) {
         Object value = evaluate(stmt.expression());
         System.out.println(stringify(value));
@@ -410,6 +454,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         if (value instanceof Double) return TokenType.TYPE_DECIMAL;
         if (value instanceof String) return TokenType.TYPE_STRING;
         if (value instanceof Boolean) return TokenType.TYPE_BOOLEAN;
+        if (value instanceof TVScriptCallable) return TokenType.FUNCTION;
         return null;
     }
 

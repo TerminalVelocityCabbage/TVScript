@@ -24,6 +24,8 @@ public interface Expression {
         R visitAssignExpression(AssignExpression expr);
         R visitRangeExpression(RangeExpression expr);
         R visitMatchExpression(MatchExpression expr);
+        R visitCallExpression(CallExpression expr);
+        R visitFunctionExpression(FunctionExpression expr);
     }
 
     /**
@@ -111,5 +113,21 @@ public interface Expression {
         }
 
         public record Case(List<Expression> patterns, Expression branch) {}
+    }
+
+    record CallExpression(Expression callee, Token paren, List<Argument> arguments) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitCallExpression(this);
+        }
+
+        public record Argument(Token name, Expression value) {}
+    }
+
+    record FunctionExpression(List<Statement.FunctionStatement.Parameter> parameters, Token returnType, Statement body) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitFunctionExpression(this);
+        }
     }
 }

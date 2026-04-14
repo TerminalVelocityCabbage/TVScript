@@ -25,6 +25,7 @@ public class TVScript {
 
     public static boolean hadError = false;
     public static boolean hadRuntimeError = false;
+    private static CompileError firstCompileError = null;
     private static final Interpreter interpreter = new Interpreter();
 
     public static void main(String[] args) throws IOException {
@@ -40,7 +41,13 @@ public class TVScript {
 
     private static void runFile(String path) throws IOException {
         byte[] bytes = Files.readAllBytes(Paths.get(path));
-        run(new String(bytes, Charset.defaultCharset()));
+        try {
+            run(new String(bytes, Charset.defaultCharset()));
+        } catch (CompileError error) {
+            System.exit(65);
+        } catch (RuntimeError error) {
+            System.exit(70);
+        }
 
         if (hadError) System.exit(65);
         if (hadRuntimeError) System.exit(70);
@@ -54,31 +61,45 @@ public class TVScript {
             System.out.print("> ");
             String line = reader.readLine();
             if (line == null) break;
-            run(line);
+            try {
+                run(line);
+            } catch (CompileError | RuntimeError error) {
+                // Already reported.
+            }
             hadError = false;
         }
     }
 
     public static void run(String source) {
+        run(source, interpreter);
+    }
+
+    public static void run(String source, Interpreter interpreter) {
+        hadError = false;
+        hadRuntimeError = false;
+        firstCompileError = null;
+
         Scanner scanner = new Scanner(source);
         List<Token> tokens = scanner.scanTokens();
         Parser parser = new Parser(tokens);
         List<Statement> statements = parser.parseStatements();
 
         // Stop if there was a syntax error.
-        if (hadError) return;
+        if (hadError) {
+            if (firstCompileError != null) throw firstCompileError;
+            throw new CompileError(null, "Unknown syntax error");
+        }
 
         TypeChecker typeChecker = new TypeChecker();
         typeChecker.check(statements);
 
         // Stop if there was a static analysis error.
-        if (hadError) return;
-
-        try {
-            interpreter.interpret(statements);
-        } catch (RuntimeError error) {
-            // Already reported.
+        if (hadError) {
+            if (firstCompileError != null) throw firstCompileError;
+            throw new CompileError(null, "Unknown compilation error");
         }
+
+        interpreter.interpret(statements);
     }
 
     /**
@@ -87,6 +108,7 @@ public class TVScript {
      * @param message The error message.
      */
     public static void error(int line, String message) {
+        if (firstCompileError == null) firstCompileError = new CompileError(new Token(TokenType.NONE, "", null, line), message);
         report(line, "", message);
     }
 
@@ -96,6 +118,7 @@ public class TVScript {
      * @param message The error message.
      */
     public static void error(Token token, String message) {
+        if (firstCompileError == null) firstCompileError = new CompileError(token, message);
         if (token.type() == TokenType.EOF) {
             report(token.line(), " at end", message);
         } else {
@@ -118,6 +141,7 @@ public class TVScript {
      * @param error The compilation error.
      */
     public static void compileError(CompileError error) {
+        if (firstCompileError == null) firstCompileError = error;
         if (error.token.type() == TokenType.EOF) {
             report(error.token.line(), " at end", error.getMessage());
         } else {

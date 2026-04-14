@@ -94,6 +94,22 @@ public class AstPrinter implements Expression.Visitor<String> {
         return builder.toString();
     }
 
+    @Override
+    public String visitCallExpression(CallExpression expr) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("(call ").append(expr.callee().accept(this));
+        for (CallExpression.Argument arg : expr.arguments()) {
+            builder.append(" ").append(arg.name().lexeme()).append(":").append(arg.value().accept(this));
+        }
+        builder.append(")");
+        return builder.toString();
+    }
+
+    @Override
+    public String visitFunctionExpression(FunctionExpression expr) {
+        return "(function)";
+    }
+
     private String parenthesize(String name, Expression... exprs) {
         StringBuilder builder = new StringBuilder();
 

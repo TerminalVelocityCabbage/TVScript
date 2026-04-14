@@ -8,6 +8,7 @@ import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static com.terminalvelocitycabbage.tvscript.parsing.TokenType.*;
 
@@ -53,7 +54,11 @@ public class Parser {
 
     private Statement declaration() {
         try {
-            if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN)) {
+            if (match(FUNCTION)) {
+                return functionDeclaration("function");
+            }
+
+            if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE)) {
                 return varDeclaration(previous());
             }
 
@@ -68,7 +73,7 @@ public class Parser {
         boolean isConst = typeToken.type() == CONST;
         Token finalType = typeToken;
 
-        if (isConst && match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN)) {
+        if (isConst && match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION)) {
             finalType = previous();
         }
 
@@ -92,11 +97,21 @@ public class Parser {
         if (match(MATCH)) return matchStatement();
         if (match(BREAK)) return breakStatement();
         if (match(CONTINUE)) return continueStatement();
+        if (match(RETURN)) return returnStatement();
         if (match(PRINT)) return printStatement();
         if (match(PASS)) return passStatement();
         if (match(INDENT)) return new BlockStatement(block());
 
         return expressionStatement();
+    }
+
+    private Statement returnStatement() {
+        Token keyword = previous();
+        Expression value = null;
+        if (!check(NEWLINE) && !check(EOF) && !check(DEDENT)) {
+            value = expression();
+        }
+        return new ReturnStatement(keyword, value);
     }
 
     private Statement whileStatement() {
@@ -250,6 +265,58 @@ public class Parser {
     private Statement expressionStatement() {
         Expression expr = expression();
         return new ExpressionStatement(expr);
+    }
+
+    private Statement functionDeclaration(String kind) {
+        Token name = consume(IDENTIFIER, "Expect " + kind + " name.");
+        consume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
+        List<FunctionStatement.Parameter> parameters = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                parameters.add(parameter());
+            } while (match(COMMA));
+        }
+        consume(RIGHT_PAREN, "Expect ')' after parameters.");
+
+        Token returnType = null;
+        if (match(ARROW)) {
+            if (check(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER)) {
+                returnType = consumeType("Expect return type.");
+            }
+        }
+
+        consume(COLON, "Expect ':' before " + kind + " body.");
+        Statement body;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in " + kind + " declaration.");
+            body = new BlockStatement(block());
+        } else {
+            body = statement();
+            if (!(body instanceof BlockStatement)) {
+                List<Statement> stmts = new ArrayList<>();
+                stmts.add(body);
+                body = new BlockStatement(stmts);
+            }
+        }
+
+        return new FunctionStatement(name, parameters, returnType, body);
+    }
+
+    private FunctionStatement.Parameter parameter() {
+        Token type = consumeType("Expect parameter type.");
+        Token name = consume(IDENTIFIER, "Expect parameter name.");
+        Expression defaultValue = null;
+        if (match(EQUAL)) {
+            defaultValue = expression();
+        }
+        return new FunctionStatement.Parameter(type, name, defaultValue);
+    }
+
+    private Token consumeType(String message) {
+        if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER)) {
+            return previous();
+        }
+        throw error(peek(), message);
     }
 
     private Expression expression() {
@@ -412,10 +479,48 @@ public class Parser {
             return new UnaryExpression(operator, right);
         }
 
-        return primary();
+        return call();
+    }
+
+    private Expression call() {
+        Expression expr = primary();
+
+        while (true) {
+            if (match(LEFT_PAREN)) {
+                expr = finishCall(expr);
+            } else {
+                break;
+            }
+        }
+
+        return expr;
+    }
+
+    private Expression finishCall(Expression callee) {
+        List<CallExpression.Argument> arguments = new ArrayList<>();
+        Set<String> argumentNames = new java.util.HashSet<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                Token name = consume(IDENTIFIER, "Expect argument name.");
+                if (!argumentNames.add(name.lexeme())) {
+                    TVScript.error(name, "Duplicate argument '" + name.lexeme() + "'.");
+                    throw new ParseError();
+                }
+                consume(COLON, "Expect ':' after argument name.");
+                Expression value = expression();
+                arguments.add(new CallExpression.Argument(name, value));
+            } while (match(COMMA));
+        }
+
+        Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
+        return new CallExpression(callee, paren, arguments);
     }
 
     private Expression primary() {
+        if (match(FUNCTION)) {
+            return anonymousFunctionExpression();
+        }
+
         if (match(FALSE)) return new LiteralExpression(false);
         if (match(TRUE)) return new LiteralExpression(true);
         if (match(NONE)) return new LiteralExpression(null);
@@ -453,12 +558,100 @@ public class Parser {
         }
 
         if (match(LEFT_PAREN)) {
+            // Check if this is an anonymous function (params) -> ...
+            int checkpoint = current;
+            try {
+                List<FunctionStatement.Parameter> parameters = new ArrayList<>();
+                if (!check(RIGHT_PAREN)) {
+                    do {
+                        parameters.add(parameter());
+                    } while (match(COMMA));
+                }
+                consume(RIGHT_PAREN, "Expect ')' after parameters.");
+                if (match(ARROW)) {
+                    Token returnType = null;
+                    if (check(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER)) {
+                        returnType = previous();
+                    }
+
+                    Statement body;
+                    if (match(COLON)) {
+                        if (match(NEWLINE)) {
+                            consume(INDENT, "Expect indentation after newline in function expression.");
+                            body = new BlockStatement(block());
+                        } else {
+                            body = statement();
+                            if (!(body instanceof BlockStatement)) {
+                                List<Statement> stmts = new ArrayList<>();
+                                stmts.add(body);
+                                body = new BlockStatement(stmts);
+                            }
+                        }
+                    } else {
+                        // Single expression body
+                        Expression expr = expression();
+                        List<Statement> stmts = new ArrayList<>();
+                        stmts.add(new ReturnStatement(null, expr)); // null keyword is okay for implicit return
+                        body = new BlockStatement(stmts);
+                    }
+                    return new FunctionExpression(parameters, returnType, body);
+                }
+            } catch (ParseError e) {
+                // Not a function, backtrack
+                current = checkpoint;
+            }
+
             Expression expr = expression();
             consume(RIGHT_PAREN, "Expect ')' after expression.");
             return new GroupingExpression(expr);
         }
 
         throw error(peek(), "Expect expression.");
+    }
+
+    private Expression anonymousFunctionExpression() {
+        // 'function' was already matched
+        Token name = null;
+        if (check(IDENTIFIER)) {
+            name = advance();
+        }
+        consume(LEFT_PAREN, "Expect '(' after function keyword.");
+        List<FunctionStatement.Parameter> parameters = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                parameters.add(parameter());
+            } while (match(COMMA));
+        }
+        consume(RIGHT_PAREN, "Expect ')' after parameters.");
+
+        Token returnType = null;
+        if (match(ARROW)) {
+            returnType = consumeType("Expect return type.");
+        }
+
+        consume(COLON, "Expect ':' before function body.");
+        Statement body;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in function expression.");
+            body = new BlockStatement(block());
+        } else {
+            body = statement();
+            if (!(body instanceof BlockStatement)) {
+                List<Statement> stmts = new ArrayList<>();
+                stmts.add(body);
+                body = new BlockStatement(stmts);
+            }
+        }
+
+        // If it had a name, it's still an expression but we might want to store it in a FunctionStatement wrapper or just treat it as FunctionExpression
+        return new FunctionExpression(parameters, returnType, body);
+    }
+    
+    private boolean check(TokenType... types) {
+        for (TokenType type : types) {
+            if (check(type)) return true;
+        }
+        return false;
     }
 
     private boolean match(TokenType... types) {

@@ -24,7 +24,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] String Interpolation (`"{expression}"`)
 - [x] `while` & `for` Loops (Ranges, `break`, `continue`)
 - [x] `match` Statements
-- [ ] Functions & First-class functions
+- [x] Functions & First-class functions
 - [ ] Classes & Objects
 - [ ] Inheritance & Traits
 - [ ] Types & Operator Overloading
@@ -637,12 +637,23 @@ functions can also take in parameters and be passed arguments. All parameters mu
 function greet(string name):
   print "greetings {name}!"
 ```
+### Optional Arguments
+Functions can have optional arguments by providing a default value in the function definition.
+```
+function greet(string name = "programmer"):
+  print "greetings {name}!"
+```
+If an argument is not provided when calling the function, the default value will be used.
+```
+greet() //Prints "greetings programmer!"
+greet(name: "Junie") //Prints "greetings Junie!"
+```
 functions can also be used as expressions by returning a value. The return type must be specified if a return is used.
 ```
 function add(integer a, integer b) -> integer:
   return a + b
 ```
-If no return type is specified, the function is assumed to return `void`. You can specify this as the return type if you feel so inclined, but it is not required. In our earlier example: ``function greet(string name):`` is equivalent to ``function greet(string name) -> void:``.
+If no return type is specified, the function is assumed to return `none`. You can specify this as the return type if you feel so inclined, but it is not required. In our earlier example: ``function greet(string name):`` is equivalent to ``function greet(string name) -> none:``.
 ### Calling functions
 You call a function by name
 ```
