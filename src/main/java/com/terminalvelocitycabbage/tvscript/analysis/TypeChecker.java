@@ -9,6 +9,7 @@ import com.terminalvelocitycabbage.tvscript.errors.CompileError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
+import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,8 +41,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     public TypeChecker() {
         Map<String, VariableStaticInfo> globalScope = new HashMap<>();
-        globalScope.put("clock", new VariableStaticInfo(TokenType.FUNCTION, true, TokenType.TYPE_DECIMAL));
-        globalScope.put("abs", new VariableStaticInfo(TokenType.FUNCTION, true, TokenType.TYPE_DECIMAL));
+        for (NativeFunctions.NativeFunctionDescriptor descriptor : NativeFunctions.getAll()) {
+            globalScope.put(descriptor.name(), new VariableStaticInfo(TokenType.FUNCTION, true, descriptor.returnType()));
+        }
         scopes.add(globalScope);
     }
 

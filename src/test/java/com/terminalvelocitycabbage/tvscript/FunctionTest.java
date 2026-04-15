@@ -130,6 +130,33 @@ public class FunctionTest {
     }
 
     @Test
+    public void testNativeFunctionWrongArgument() {
+        RuntimeError error = assertThrows(RuntimeError.class, () -> {
+            run("""
+                print abs(wrong: -10)
+                """);
+        });
+        assertEquals("Unexpected argument 'wrong'.", error.getMessage());
+
+        error = assertThrows(RuntimeError.class, () -> {
+            run("""
+                print clock(extra: 1)
+                """);
+        });
+        assertEquals("Unexpected argument 'extra'.", error.getMessage());
+    }
+
+    @Test
+    public void testNativeFunctionMissingArgument() {
+        RuntimeError error = assertThrows(RuntimeError.class, () -> {
+            run("""
+                print abs()
+                """);
+        });
+        assertEquals("Missing argument 'n'.", error.getMessage());
+    }
+
+    @Test
     public void testCallNonFunction() {
         RuntimeError error = assertThrows(RuntimeError.class, () -> {
             run("""

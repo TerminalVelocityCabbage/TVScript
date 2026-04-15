@@ -7,6 +7,7 @@ import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
 import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -498,7 +499,7 @@ public class Parser {
 
     private Expression finishCall(Expression callee) {
         List<CallExpression.Argument> arguments = new ArrayList<>();
-        Set<String> argumentNames = new java.util.HashSet<>();
+        Set<String> argumentNames = new HashSet<>();
         if (!check(RIGHT_PAREN)) {
             do {
                 Token name = consume(IDENTIFIER, "Expect argument name.");

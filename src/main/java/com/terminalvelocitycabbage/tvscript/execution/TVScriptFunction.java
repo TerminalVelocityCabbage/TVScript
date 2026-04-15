@@ -2,8 +2,10 @@ package com.terminalvelocitycabbage.tvscript.execution;
 
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
+import com.terminalvelocitycabbage.tvscript.ast.Statement.FunctionStatement.Parameter;
 
 import java.util.List;
 import java.util.Map;
@@ -15,12 +17,12 @@ import java.util.Objects;
 public class TVScriptFunction implements TVScriptCallable {
 
     private final String name;
-    private final List<Statement.FunctionStatement.Parameter> parameters;
+    private final List<Parameter> parameters;
     private final Statement body;
     private final Environment closure;
     private final Token returnType;
 
-    public TVScriptFunction(String name, List<Statement.FunctionStatement.Parameter> parameters, Statement body, Environment closure, Token returnType) {
+    public TVScriptFunction(String name, List<Parameter> parameters, Statement body, Environment closure, Token returnType) {
         this.name = name;
         this.parameters = parameters;
         this.body = body;
@@ -48,19 +50,19 @@ public class TVScriptFunction implements TVScriptCallable {
         // Check for unexpected arguments
         for (String argName : arguments.keySet()) {
             boolean found = false;
-            for (Statement.FunctionStatement.Parameter parameter : parameters) {
+            for (Parameter parameter : parameters) {
                 if (parameter.name().lexeme().equals(argName)) {
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                throw new com.terminalvelocitycabbage.tvscript.errors.RuntimeError(callToken, "Unexpected argument '" + argName + "'.");
+                throw new RuntimeError(callToken, "Unexpected argument '" + argName + "'.");
             }
         }
 
         for (int i = 0; i < parameters.size(); i++) {
-            Statement.FunctionStatement.Parameter parameter = parameters.get(i);
+            Parameter parameter = parameters.get(i);
             String paramName = parameter.name().lexeme();
             Object value = arguments.get(paramName);
 
@@ -70,7 +72,7 @@ public class TVScriptFunction implements TVScriptCallable {
                     value = interpreter.evaluate(parameter.defaultValue());
                 } else {
                     // This should ideally be caught earlier, but let's be safe
-                    throw new com.terminalvelocitycabbage.tvscript.errors.RuntimeError(parameter.name(), "Missing argument '" + paramName + "'.");
+                    throw new RuntimeError(parameter.name(), "Missing argument '" + paramName + "'.");
                 }
             }
 
@@ -101,8 +103,8 @@ public class TVScriptFunction implements TVScriptCallable {
         // Match parameters by name and type
         if (parameters.size() != that.parameters.size()) return false;
         for (int i = 0; i < parameters.size(); i++) {
-            Statement.FunctionStatement.Parameter p1 = parameters.get(i);
-            Statement.FunctionStatement.Parameter p2 = that.parameters.get(i);
+            Parameter p1 = parameters.get(i);
+            Parameter p2 = that.parameters.get(i);
             if (!p1.name().lexeme().equals(p2.name().lexeme())) return false;
             if (p1.type().type() != p2.type().type()) return false;
         }

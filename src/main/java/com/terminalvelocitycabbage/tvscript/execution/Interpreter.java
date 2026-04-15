@@ -8,6 +8,12 @@ import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
+import java.util.HashMap;
+import java.util.Map;
+import com.terminalvelocitycabbage.tvscript.ast.Statement.MatchStatement.Case;
+import com.terminalvelocitycabbage.tvscript.ast.Expression.CallExpression.Argument;
+
+import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
 
 import java.util.List;
 
@@ -36,14 +42,16 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     private Environment environment = new Environment();
 
     public Interpreter() {
-        environment.defineNative("clock", new TVScriptNativeFunction(0, args -> (double) System.currentTimeMillis() / 1000.0));
-        environment.defineNative("abs", com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions.ABS);
+        for (NativeFunctions.NativeFunctionDescriptor descriptor : NativeFunctions.getAll()) {
+            environment.defineNative(descriptor.name(), descriptor.function());
+        }
     }
 
     public void reset() {
         environment = new Environment();
-        environment.defineNative("clock", new TVScriptNativeFunction(0, args -> (double) System.currentTimeMillis() / 1000.0));
-        environment.defineNative("abs", com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions.ABS);
+        for (NativeFunctions.NativeFunctionDescriptor descriptor : NativeFunctions.getAll()) {
+            environment.defineNative(descriptor.name(), descriptor.function());
+        }
     }
 
     /**
@@ -258,8 +266,8 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
 
         TVScriptCallable function = (TVScriptCallable) callee;
-        java.util.Map<String, Object> arguments = new java.util.HashMap<>();
-        for (CallExpression.Argument arg : expr.arguments()) {
+        Map<String, Object> arguments = new HashMap<>();
+        for (Argument arg : expr.arguments()) {
             arguments.put(arg.name().lexeme(), evaluate(arg.value()));
         }
 
@@ -432,7 +440,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Void visitMatchStatement(MatchStatement stmt) {
         Object condition = evaluate(stmt.condition());
 
-        for (MatchStatement.Case matchCase : stmt.cases()) {
+        for (Case matchCase : stmt.cases()) {
             for (Expression pattern : matchCase.patterns()) {
                 Object patternValue = evaluate(pattern);
                 if (matchPattern(condition, patternValue)) {

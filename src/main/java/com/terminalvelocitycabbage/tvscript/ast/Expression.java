@@ -1,6 +1,7 @@
 package com.terminalvelocitycabbage.tvscript.ast;
 
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.ast.Statement.FunctionStatement.Parameter;
 import java.util.List;
 
 /**
@@ -124,7 +125,7 @@ public interface Expression {
         public record Argument(Token name, Expression value) {}
     }
 
-    record FunctionExpression(List<Statement.FunctionStatement.Parameter> parameters, Token returnType, Statement body) implements Expression {
+    record FunctionExpression(List<Parameter> parameters, Token returnType, Statement body) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitFunctionExpression(this);
