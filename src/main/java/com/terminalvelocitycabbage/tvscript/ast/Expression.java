@@ -14,19 +14,23 @@ public interface Expression {
      * @param <R> The return type of the visitor methods.
      */
     interface Visitor<R> {
-        R visitBinaryExpression(BinaryExpression expr);
-        R visitGroupingExpression(GroupingExpression expr);
-        R visitLiteralExpression(LiteralExpression expr);
-        R visitLogicalExpression(LogicalExpression expr);
-        R visitUnaryExpression(UnaryExpression expr);
-        R visitTernaryExpression(TernaryExpression expr);
-        R visitInterpolationExpression(InterpolationExpression expr);
-        R visitVariableExpression(VariableExpression expr);
-        R visitAssignExpression(AssignExpression expr);
-        R visitRangeExpression(RangeExpression expr);
-        R visitMatchExpression(MatchExpression expr);
-        R visitCallExpression(CallExpression expr);
-        R visitFunctionExpression(FunctionExpression expr);
+        default R visitBinaryExpression(BinaryExpression expr) { return null; }
+        default R visitGroupingExpression(GroupingExpression expr) { return null; }
+        default R visitLiteralExpression(LiteralExpression expr) { return null; }
+        default R visitLogicalExpression(LogicalExpression expr) { return null; }
+        default R visitUnaryExpression(UnaryExpression expr) { return null; }
+        default R visitTernaryExpression(TernaryExpression expr) { return null; }
+        default R visitInterpolationExpression(InterpolationExpression expr) { return null; }
+        default R visitVariableExpression(VariableExpression expr) { return null; }
+        default R visitAssignExpression(AssignExpression expr) { return null; }
+        default R visitRangeExpression(RangeExpression expr) { return null; }
+        default R visitMatchExpression(MatchExpression expr) { return null; }
+        default R visitCallExpression(CallExpression expr) { return null; }
+        default R visitFunctionExpression(FunctionExpression expr) { return null; }
+        default R visitGetExpression(GetExpression expr) { return null; }
+        default R visitSetExpression(SetExpression expr) { return null; }
+        default R visitThisExpression(ThisExpression expr) { return null; }
+        default R visitNewExpression(NewExpression expr) { return null; }
     }
 
     /**
@@ -116,19 +120,47 @@ public interface Expression {
         public record Case(List<Expression> patterns, Expression branch) {}
     }
 
+    public record Argument(Token name, Expression value) {}
+
     record CallExpression(Expression callee, Token paren, List<Argument> arguments) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitCallExpression(this);
         }
-
-        public record Argument(Token name, Expression value) {}
     }
 
     record FunctionExpression(List<Parameter> parameters, Token returnType, Statement body) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitFunctionExpression(this);
+        }
+    }
+
+    record GetExpression(Expression object, Token name) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitGetExpression(this);
+        }
+    }
+
+    record SetExpression(Expression object, Token name, Expression value) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitSetExpression(this);
+        }
+    }
+
+    record ThisExpression(Token keyword) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitThisExpression(this);
+        }
+    }
+
+    record NewExpression(Token keyword, Expression callee, List<Argument> arguments) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitNewExpression(this);
         }
     }
 }

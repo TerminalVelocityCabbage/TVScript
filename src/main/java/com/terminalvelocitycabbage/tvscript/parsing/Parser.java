@@ -55,11 +55,17 @@ public class Parser {
 
     private Statement declaration() {
         try {
+            if (match(CLASS)) return classDeclaration();
             if (match(FUNCTION)) {
                 return functionDeclaration("function");
             }
 
             if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE)) {
+                return varDeclaration(previous());
+            }
+
+            if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
+                advance();
                 return varDeclaration(previous());
             }
 
@@ -268,9 +274,60 @@ public class Parser {
         return new ExpressionStatement(expr);
     }
 
-    private Statement functionDeclaration(String kind) {
-        Token name = consume(IDENTIFIER, "Expect " + kind + " name.");
-        consume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
+    private Statement classDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect class name.");
+        consume(COLON, "Expect ':' before class body.");
+        consume(NEWLINE, "Expect newline before class body.");
+        consume(INDENT, "Expect indentation before class body.");
+
+        List<VarStatement> fields = new ArrayList<>();
+        List<FunctionStatement> methods = new ArrayList<>();
+        List<FunctionStatement> staticMethods = new ArrayList<>();
+        List<FunctionStatement> constructors = new ArrayList<>();
+
+        while (!check(DEDENT) && !isAtEnd()) {
+            if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, VAR, CONST)) {
+                fields.add((VarStatement)varDeclaration(previous()));
+            } else if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
+                advance();
+                fields.add((VarStatement)varDeclaration(previous()));
+            } else if (match(CONSTRUCTOR)) {
+                constructors.add(constructorDeclaration());
+            } else if (match(FUNCTION)) {
+                staticMethods.add((FunctionStatement)functionDeclaration("static function"));
+            } else if (check(IDENTIFIER)) {
+                methods.add(methodDeclaration());
+            } else if (match(NEWLINE)) {
+                // Ignore empty lines
+            } else {
+                throw error(peek(), "Expect field or method declaration in class body.");
+            }
+
+            while (match(NEWLINE));
+        }
+
+        consume(DEDENT, "Expect dedent after class body.");
+
+        if (constructors.isEmpty()) {
+            TVScript.error(name, "Class must have a constructor.");
+            throw new ParseError();
+        }
+
+        return new ClassStatement(name, fields, methods, staticMethods, constructors);
+    }
+
+    private FunctionStatement methodDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect method name.");
+        return finishFunctionDeclaration(name, "method");
+    }
+
+    private FunctionStatement constructorDeclaration() {
+        Token keyword = previous();
+        return finishFunctionDeclaration(keyword, "constructor");
+    }
+
+    private FunctionStatement finishFunctionDeclaration(Token name, String kind) {
+        consume(LEFT_PAREN, "Expect '(' after " + kind + ".");
         List<FunctionStatement.Parameter> parameters = new ArrayList<>();
         if (!check(RIGHT_PAREN)) {
             do {
@@ -281,9 +338,7 @@ public class Parser {
 
         Token returnType = null;
         if (match(ARROW)) {
-            if (check(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER)) {
-                returnType = consumeType("Expect return type.");
-            }
+            returnType = consumeType("Expect return type.");
         }
 
         consume(COLON, "Expect ':' before " + kind + " body.");
@@ -301,6 +356,11 @@ public class Parser {
         }
 
         return new FunctionStatement(name, parameters, returnType, body);
+    }
+
+    private Statement functionDeclaration(String kind) {
+        Token name = consume(IDENTIFIER, "Expect " + kind + " name.");
+        return finishFunctionDeclaration(name, kind);
     }
 
     private FunctionStatement.Parameter parameter() {
@@ -366,6 +426,9 @@ public class Parser {
             if (expr instanceof VariableExpression) {
                 Token name = ((VariableExpression)expr).name();
                 return new AssignExpression(name, value);
+            } else if (expr instanceof GetExpression) {
+                GetExpression get = (GetExpression)expr;
+                return new SetExpression(get.object(), get.name(), value);
             }
 
             TVScript.error(equals, "Invalid assignment target.");
@@ -489,6 +552,9 @@ public class Parser {
         while (true) {
             if (match(LEFT_PAREN)) {
                 expr = finishCall(expr);
+            } else if (match(DOT)) {
+                Token name = consume(IDENTIFIER, "Expect property name after '.'.");
+                expr = new GetExpression(expr, name);
             } else {
                 break;
             }
@@ -518,6 +584,20 @@ public class Parser {
     }
 
     private Expression primary() {
+        if (match(NEW)) {
+            Token keyword = previous();
+            Expression callee = call();
+
+            if (callee instanceof CallExpression) {
+                CallExpression call = (CallExpression)callee;
+                return new NewExpression(keyword, call.callee(), call.arguments());
+            } else {
+                throw error(keyword, "Expect constructor call after 'new'.");
+            }
+        }
+
+        if (match(THIS)) return new ThisExpression(previous());
+
         if (match(FUNCTION)) {
             return anonymousFunctionExpression();
         }
@@ -673,6 +753,12 @@ public class Parser {
     private boolean check(TokenType type) {
         if (isAtEnd()) return false;
         return peek().type() == type;
+    }
+
+    private boolean checkNext(TokenType type) {
+        if (isAtEnd()) return false;
+        if (tokens.get(current + 1).type() == EOF) return false;
+        return tokens.get(current + 1).type() == type;
     }
 
     private Token advance() {

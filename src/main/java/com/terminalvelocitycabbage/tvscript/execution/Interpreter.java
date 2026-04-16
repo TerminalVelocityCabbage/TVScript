@@ -8,14 +8,14 @@ import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import com.terminalvelocitycabbage.tvscript.ast.Statement.MatchStatement.Case;
-import com.terminalvelocitycabbage.tvscript.ast.Expression.CallExpression.Argument;
+import com.terminalvelocitycabbage.tvscript.ast.Expression.Argument;
 
 import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
-
-import java.util.List;
 
 /**
  * Executes the AST by visiting each node.
@@ -275,6 +275,57 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Object visitGetExpression(GetExpression expr) {
+        Object object = evaluate(expr.object());
+        if (object instanceof TVScriptInstance instance) {
+            return instance.get(expr.name());
+        }
+
+        if (object instanceof TVScriptClass klass) {
+            TVScriptFunction staticMethod = klass.findStaticMethod(expr.name().lexeme());
+            if (staticMethod != null) return staticMethod;
+            throw new RuntimeError(expr.name(), "Undefined static method '" + expr.name().lexeme() + "'.");
+        }
+
+        throw new RuntimeError(expr.name(), "Only instances and classes have properties.");
+    }
+
+    @Override
+    public Object visitSetExpression(SetExpression expr) {
+        Object object = evaluate(expr.object());
+
+        if (!(object instanceof TVScriptInstance)) {
+            throw new RuntimeError(expr.name(), "Only instances have fields.");
+        }
+
+        Object value = evaluate(expr.value());
+        ((TVScriptInstance) object).set(expr.name(), value);
+        return value;
+    }
+
+    @Override
+    public Object visitThisExpression(ThisExpression expr) {
+        return environment.get(expr.keyword());
+    }
+
+    @Override
+    public Object visitNewExpression(NewExpression expr) {
+        Object callee = evaluate(expr.callee());
+
+        if (!(callee instanceof TVScriptClass)) {
+            throw new RuntimeError(expr.keyword(), "Can only use 'new' with classes.");
+        }
+
+        TVScriptClass klass = (TVScriptClass) callee;
+        Map<String, Object> arguments = new HashMap<>();
+        for (Argument argument : expr.arguments()) {
+            arguments.put(argument.name().lexeme(), evaluate(argument.value()));
+        }
+
+        return klass.instantiate(this, arguments, expr.keyword());
+    }
+
+    @Override
     public Object visitFunctionExpression(FunctionExpression expr) {
         return new TVScriptFunction(expr, environment);
     }
@@ -392,6 +443,30 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Void visitFunctionStatement(FunctionStatement stmt) {
         TVScriptFunction function = new TVScriptFunction(stmt, environment);
         environment.define(stmt.name(), function, TokenType.FUNCTION, true);
+        return null;
+    }
+
+    @Override
+    public Void visitClassStatement(ClassStatement stmt) {
+        Map<String, TVScriptFunction> methods = new HashMap<>();
+        for (FunctionStatement method : stmt.methods()) {
+            TVScriptFunction function = new TVScriptFunction(method, environment);
+            methods.put(method.name().lexeme(), function);
+        }
+
+        Map<String, TVScriptFunction> staticMethods = new HashMap<>();
+        for (FunctionStatement staticMethod : stmt.staticMethods()) {
+            TVScriptFunction function = new TVScriptFunction(staticMethod, environment);
+            staticMethods.put(staticMethod.name().lexeme(), function);
+        }
+
+        List<TVScriptFunction> constructors = new ArrayList<>();
+        for (FunctionStatement constructorStmt : stmt.constructors()) {
+            constructors.add(new TVScriptFunction(constructorStmt, environment));
+        }
+
+        TVScriptClass klass = new TVScriptClass(stmt.name().lexeme(), stmt.fields(), methods, staticMethods, constructors);
+        environment.define(stmt.name(), klass, TokenType.CLASS, true);
         return null;
     }
 

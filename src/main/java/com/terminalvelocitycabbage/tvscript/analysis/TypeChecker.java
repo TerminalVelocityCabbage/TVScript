@@ -180,7 +180,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitFunctionStatement(FunctionStatement stmt) {
-        declare(stmt.name(), TokenType.FUNCTION, true, stmt.returnType() != null ? stmt.returnType().type() : null);
+        if (stmt.name().type() != TokenType.CONSTRUCTOR) {
+            declare(stmt.name(), TokenType.FUNCTION, true, stmt.returnType() != null ? stmt.returnType().type() : null);
+        }
         beginScope();
         for (FunctionStatement.Parameter param : stmt.parameters()) {
             declare(param.name(), param.type().type(), false);
@@ -195,6 +197,38 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         if (stmt.value() != null) {
             check(stmt.value());
         }
+        return null;
+    }
+
+    @Override
+    public Void visitClassStatement(ClassStatement stmt) {
+        declare(stmt.name(), TokenType.CLASS, true);
+        
+        // Scope for instance fields and methods
+        beginScope();
+        declare(new Token(TokenType.THIS, "this", null, 0), TokenType.CLASS, true);
+        
+        for (VarStatement field : stmt.fields()) {
+            if (field.initializer() != null) {
+                check(field.initializer());
+            }
+        }
+        
+        for (FunctionStatement method : stmt.methods()) {
+            check(method);
+        }
+        for (FunctionStatement constructor : stmt.constructors()) {
+            check(constructor);
+        }
+        endScope();
+
+        // Check static methods outside the instance scope where 'this' is defined
+        for (FunctionStatement staticMethod : stmt.staticMethods()) {
+            beginScope();
+            check(staticMethod);
+            endScope();
+        }
+
         return null;
     }
 
@@ -433,6 +467,37 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.FUNCTION;
     }
 
+    @Override
+    public TokenType visitGetExpression(GetExpression expr) {
+        check(expr.object());
+        return null;
+    }
+
+    @Override
+    public TokenType visitSetExpression(SetExpression expr) {
+        check(expr.object());
+        return check(expr.value());
+    }
+
+    @Override
+    public TokenType visitThisExpression(ThisExpression expr) {
+        VariableStaticInfo info = lookup(expr.keyword());
+        if (info == null) {
+            TVScript.compileError(new CompileError(expr.keyword(), "Cannot use 'this' outside of a class method."));
+            return null;
+        }
+        return info.type;
+    }
+
+    @Override
+    public TokenType visitNewExpression(NewExpression expr) {
+        check(expr.callee());
+        for (Argument arg : expr.arguments()) {
+            check(arg.value());
+        }
+        return TokenType.CLASS;
+    }
+
     private void beginScope() {
         scopes.add(new HashMap<>());
     }
@@ -477,6 +542,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_INTEGER) return true;
         if (expected == TokenType.TYPE_INTEGER && actual == TokenType.TYPE_RANGE) return true;
         if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_RANGE) return true;
+        if (expected == TokenType.IDENTIFIER && actual == TokenType.CLASS) return true;
+        if (expected == TokenType.CLASS && actual == TokenType.IDENTIFIER) return true;
         return false;
     }
 

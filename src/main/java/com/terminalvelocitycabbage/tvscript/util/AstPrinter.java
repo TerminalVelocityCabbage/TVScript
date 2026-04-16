@@ -110,6 +110,32 @@ public class AstPrinter implements Expression.Visitor<String> {
         return "(function)";
     }
 
+    @Override
+    public String visitGetExpression(GetExpression expr) {
+        return parenthesize(". " + expr.name().lexeme(), expr.object());
+    }
+
+    @Override
+    public String visitSetExpression(SetExpression expr) {
+        return parenthesize("= . " + expr.name().lexeme(), expr.object(), expr.value());
+    }
+
+    @Override
+    public String visitThisExpression(ThisExpression expr) {
+        return "this";
+    }
+
+    @Override
+    public String visitNewExpression(NewExpression expr) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("(new ").append(expr.callee().accept(this));
+        for (Expression.Argument arg : expr.arguments()) {
+            builder.append(" ").append(arg.name().lexeme()).append(":").append(arg.value().accept(this));
+        }
+        builder.append(")");
+        return builder.toString();
+    }
+
     private String parenthesize(String name, Expression... exprs) {
         StringBuilder builder = new StringBuilder();
 

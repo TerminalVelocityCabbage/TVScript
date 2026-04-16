@@ -35,7 +35,19 @@ public class TVScriptFunction implements TVScriptCallable {
     }
 
     public TVScriptFunction(Statement.FunctionStatement declaration, Environment closure) {
-        this(declaration.name().lexeme(), declaration.parameters(), declaration.body(), closure, declaration.returnType());
+        this(declaration.name() != null ? declaration.name().lexeme() : null, declaration.parameters(), declaration.body(), closure, declaration.returnType());
+    }
+
+    public TVScriptFunction bind(TVScriptInstance instance) {
+        Environment environment = new Environment(closure);
+        // define "this" in the closure
+        // We use a dummy token for 'this'
+        environment.define(new Token(TokenType.THIS, "this", null, 0), instance, TokenType.NONE, true);
+        return new TVScriptFunction(name, parameters, body, environment, returnType);
+    }
+
+    public List<Parameter> parameters() {
+        return parameters;
     }
 
     @Override

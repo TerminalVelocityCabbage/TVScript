@@ -25,7 +25,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] `while` & `for` Loops (Ranges, `break`, `continue`)
 - [x] `match` Statements
 - [x] Functions & First-class functions
-- [ ] Classes & Objects
+- [x] Classes & Objects
 - [ ] Inheritance & Traits
 - [ ] Types & Operator Overloading
 
@@ -664,15 +664,19 @@ var sum = add(a: 10, b: 20) //sets sum to 30
 
 ## Classes
 Classes are like templates for objects in your scripts. They hold some data and let you operate on that data. You can define classes with the `class` keyword followed by the class name. Class names are usually capitalized.
-```
+```ts
 class Player:
   string name
+
+  constructor(string name):
+    this.name = name
 ```
 ### Creating Objects
 To create an instance of an object you call its constructor like this:
-```
+```ts
 Player player = new Player(name: "joe")
 ```
+Note: A class **must** define at least one `constructor` to be instantiated. If no constructor is defined, it is a compile error.
 ### Custom Constructors
 You can define custom constructors for your classes with the constructor keyword.
 ```
@@ -683,24 +687,58 @@ class Player:
   constructor(string name, integer health = 100):
     this.name = name
     this.health = health != none ? health : 100
-```,search:
 ```
 ### The this keyword
 The `this` keyword is used to refer to the current object. You might have seen it used in the constructor above. It just refers to the current object.
 ### Methods
 Methods are like functions that belong to a class.
-```
+```ts
 class Vector2d:
   decimal x
   decimal y
+
+  constructor(decimal x, decimal y):
+    this.x = x
+    this.y = y
 
   //Adds a vector to this vector and returns a new value
   //Note that methods are not functions per-se, so we don't use the function keyword here
   add(Vector2d delta) -> Vector2d:
     return new Vector2d(x: this.x + delta.x, y: this.y + delta.y)
 ```
+
+### Multiple Constructors
+Classes can define multiple constructors to allow different ways of creating an object. The interpreter will select the best matching constructor based on the named arguments provided. Usually this means that the constructor with the fewest unused named arguments is selected.
+```ts
+class Player:
+  string name
+  integer score
+
+  constructor(string name):
+    this.name = name
+    this.score = 0
+
+  constructor(string name, integer score):
+    this.name = name
+    this.score = score
+
+Player p1 = new Player(name: "Junie")
+Player p2 = new Player(name: "Robot", score: 100)
+```
+
+### Static Functions
+You can also define functions inside a class using the `function` keyword. These functions do not have access to `this` and are called on the class name directly.
+```ts
+class MathUtils:
+  constructor(): pass
+  
+  function add(integer a, integer b) -> integer:
+    return a + b
+
+print MathUtils.add(a: 10, b: 20)
+```
 ### Default values
-This allows you to define an optional default value for a field when it is not set in the constructor.
+This allows you to define an optional default value for a field when it is not set in a constructor.
 ```
 class Vector2d:
   decimal x = 0

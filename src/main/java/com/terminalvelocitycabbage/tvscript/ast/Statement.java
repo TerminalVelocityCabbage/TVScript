@@ -14,19 +14,20 @@ public interface Statement {
      * @param <R> The return type of the visitor methods.
      */
     interface Visitor<R> {
-        R visitBlockStatement(BlockStatement stmt);
-        R visitExpressionStatement(ExpressionStatement stmt);
-        R visitIfStatement(IfStatement stmt);
-        R visitPrintStatement(PrintStatement stmt);
-        R visitVarStatement(VarStatement stmt);
-        R visitPassStatement(PassStatement stmt);
-        R visitWhileStatement(WhileStatement stmt);
-        R visitForStatement(ForStatement stmt);
-        R visitBreakStatement(BreakStatement stmt);
-        R visitContinueStatement(ContinueStatement stmt);
-        R visitMatchStatement(MatchStatement stmt);
-        R visitFunctionStatement(FunctionStatement stmt);
-        R visitReturnStatement(ReturnStatement stmt);
+        default R visitBlockStatement(BlockStatement stmt) { return null; }
+        default R visitExpressionStatement(ExpressionStatement stmt) { return null; }
+        default R visitIfStatement(IfStatement stmt) { return null; }
+        default R visitPrintStatement(PrintStatement stmt) { return null; }
+        default R visitVarStatement(VarStatement stmt) { return null; }
+        default R visitPassStatement(PassStatement stmt) { return null; }
+        default R visitWhileStatement(WhileStatement stmt) { return null; }
+        default R visitForStatement(ForStatement stmt) { return null; }
+        default R visitBreakStatement(BreakStatement stmt) { return null; }
+        default R visitContinueStatement(ContinueStatement stmt) { return null; }
+        default R visitMatchStatement(MatchStatement stmt) { return null; }
+        default R visitFunctionStatement(FunctionStatement stmt) { return null; }
+        default R visitReturnStatement(ReturnStatement stmt) { return null; }
+        default R visitClassStatement(ClassStatement stmt) { return null; }
     }
 
     /**
@@ -129,6 +130,13 @@ public interface Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitReturnStatement(this);
+        }
+    }
+
+    record ClassStatement(Token name, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitClassStatement(this);
         }
     }
 }

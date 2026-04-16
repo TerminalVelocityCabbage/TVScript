@@ -40,6 +40,7 @@ public class Scanner {
         keywords.put("while", TokenType.WHILE);
         keywords.put("match", TokenType.MATCH);
         keywords.put("default", TokenType.DEFAULT);
+        keywords.put("constructor", TokenType.CONSTRUCTOR);
         keywords.put("break", TokenType.BREAK);
         keywords.put("continue", TokenType.CONTINUE);
         keywords.put("print", TokenType.PRINT);
