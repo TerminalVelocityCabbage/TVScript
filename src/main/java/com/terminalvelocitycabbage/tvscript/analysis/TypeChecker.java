@@ -12,8 +12,10 @@ import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Performs static type checking on the AST.
@@ -21,6 +23,8 @@ import java.util.Map;
 public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<TokenType> {
 
     private final List<Map<String, VariableStaticInfo>> scopes = new ArrayList<>();
+    private final Map<String, ClassStatement> classes = new HashMap<>();
+    private final Map<String, TraitStatement> traits = new HashMap<>();
     private int loopDepth = 0;
 
     private static class VariableStaticInfo {
@@ -52,8 +56,18 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
      * @param statements The statements to check.
      */
     public void check(List<Statement> statements) {
+        // First pass: collect class and trait definitions
         for (Statement statement : statements) {
-            check(statement);
+            if (statement instanceof ClassStatement) {
+                classes.put(((ClassStatement) statement).name().lexeme(), (ClassStatement) statement);
+            } else if (statement instanceof TraitStatement) {
+                traits.put(((TraitStatement) statement).name().lexeme(), (TraitStatement) statement);
+            }
+        }
+
+        // Second pass: check bodies and inheritance rules
+        for (Statement statement : statements) {
+            if (statement != null) check(statement);
         }
     }
 
@@ -81,6 +95,26 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitIfStatement(IfStatement stmt) {
+        // Special case for pattern matching alias: if obj is Type -> alias:
+        if (stmt.condition() instanceof TypeBinaryExpression tbe && tbe.alias() != null) {
+            check(tbe.left());
+            
+            beginScope();
+            TokenType type = tbe.typeName().type();
+            if (type == TokenType.IDENTIFIER) {
+                type = TokenType.CLASS;
+            }
+            declare(tbe.alias(), type, true);
+            
+            check(stmt.thenBranch());
+            endScope();
+            
+            if (stmt.elseBranch() != null) {
+                check(stmt.elseBranch());
+            }
+            return null;
+        }
+
         TokenType conditionType = check(stmt.condition());
         if (conditionType != TokenType.TYPE_BOOLEAN) {
             TVScript.compileError(new CompileError(stmt.keyword(), "Condition must be boolean."));
@@ -187,7 +221,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         for (FunctionStatement.Parameter param : stmt.parameters()) {
             declare(param.name(), param.type().type(), false);
         }
-        check(stmt.body());
+        if (stmt.body() != null) {
+            check(stmt.body());
+        }
         endScope();
         return null;
     }
@@ -200,13 +236,30 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return null;
     }
 
+    private ClassStatement currentClass = null;
+
     @Override
     public Void visitClassStatement(ClassStatement stmt) {
+        ClassStatement previousClass = currentClass;
+        currentClass = stmt;
         declare(stmt.name(), TokenType.CLASS, true);
+        
+        // Check trait conflicts and missing implementations
+        checkTraitImplementations(stmt);
         
         // Scope for instance fields and methods
         beginScope();
         declare(new Token(TokenType.THIS, "this", null, 0), TokenType.CLASS, true);
+        if (stmt.superclass() != null) {
+            declare(new Token(TokenType.SUPER, "super", null, 0), TokenType.CLASS, true);
+        }
+        
+        // Declare fields from superclasses
+        declareInheritedFields(stmt);
+        
+        for (VarStatement field : stmt.fields()) {
+            declare(field.name(), field.type().type(), field.isConst());
+        }
         
         for (VarStatement field : stmt.fields()) {
             if (field.initializer() != null) {
@@ -229,6 +282,35 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             endScope();
         }
 
+        currentClass = previousClass;
+        return null;
+    }
+
+    private void declareInheritedFields(ClassStatement stmt) {
+        if (stmt.superclass() != null) {
+            ClassStatement superclass = classes.get(stmt.superclass().lexeme());
+            if (superclass != null) {
+                declareInheritedFields(superclass);
+                for (VarStatement field : superclass.fields()) {
+                    declare(field.name(), field.type().type(), field.isConst());
+                }
+            }
+        }
+    }
+
+
+    @Override
+    public Void visitTraitStatement(TraitStatement stmt) {
+        declare(stmt.name(), TokenType.TRAIT, true);
+        beginScope();
+        for (VarStatement field : stmt.fields()) {
+            if (field.initializer() != null) check(field.initializer());
+            declare(field.name(), field.type().type(), field.isConst());
+        }
+        for (FunctionStatement method : stmt.methods()) {
+            check(method);
+        }
+        endScope();
         return null;
     }
 
@@ -469,7 +551,74 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public TokenType visitGetExpression(GetExpression expr) {
-        check(expr.object());
+        TokenType objectType = check(expr.object());
+
+        if (expr.object() instanceof ThisExpression) {
+            VariableStaticInfo info = lookup(expr.name());
+            if (info != null) return info.type;
+            
+            // Check if it's a method
+            if (currentClass != null && hasMethod(currentClass, expr.name().lexeme())) {
+                return TokenType.FUNCTION;
+            }
+            
+            TVScript.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on 'this'."));
+            return null;
+        }
+
+        if (expr.object() instanceof VariableExpression varExpr) {
+            String name = varExpr.name().lexeme();
+            if (traits.containsKey(name)) {
+                TraitStatement trait = traits.get(name);
+                TokenType fieldType = findFieldInTrait(trait, expr.name().lexeme());
+                if (fieldType != null) return fieldType;
+                
+                TVScript.compileError(new CompileError(expr.name(), "Undefined trait constant '" + expr.name().lexeme() + "'."));
+            }
+        }
+
+        return null;
+    }
+
+    private boolean hasMethod(ClassStatement stmt, String name) {
+        for (FunctionStatement method : stmt.methods()) {
+            if (method.name().lexeme().equals(name)) return true;
+        }
+        if (stmt.superclass() != null) {
+            ClassStatement superclass = classes.get(stmt.superclass().lexeme());
+            if (superclass != null && hasMethod(superclass, name)) return true;
+        }
+        for (Token traitToken : stmt.traits()) {
+            TraitStatement trait = traits.get(traitToken.lexeme());
+            if (trait != null && hasTraitMethod(trait, name)) return true;
+        }
+        return false;
+    }
+
+    private boolean hasTraitMethod(TraitStatement trait, String name) {
+        for (FunctionStatement method : trait.methods()) {
+            if (method.name().lexeme().equals(name)) return true;
+        }
+        for (Token supertraitToken : trait.traits()) {
+            TraitStatement supertrait = traits.get(supertraitToken.lexeme());
+            if (supertrait != null && hasTraitMethod(supertrait, name)) return true;
+        }
+        return false;
+    }
+
+    private TokenType findFieldInTrait(TraitStatement trait, String name) {
+        for (VarStatement field : trait.fields()) {
+            if (field.name().lexeme().equals(name)) {
+                return field.type().type();
+            }
+        }
+        for (Token supertraitToken : trait.traits()) {
+            TraitStatement supertrait = traits.get(supertraitToken.lexeme());
+            if (supertrait != null) {
+                TokenType type = findFieldInTrait(supertrait, name);
+                if (type != null) return type;
+            }
+        }
         return null;
     }
 
@@ -498,6 +647,111 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.CLASS;
     }
 
+    @Override
+    public TokenType visitSuperExpression(SuperExpression expr) {
+        return TokenType.CLASS; // Simple for now
+    }
+
+    @Override
+    public TokenType visitTypeBinaryExpression(TypeBinaryExpression expr) {
+        check(expr.left());
+        if (expr.operator().type() == TokenType.AS) {
+            TokenType type = expr.typeName().type();
+            if (type == TokenType.IDENTIFIER) return TokenType.CLASS;
+            return type;
+        }
+        return TokenType.TYPE_BOOLEAN;
+    }
+
+    private record AbstractMethodInfo(Token name, String traitName) {}
+
+    private void checkTraitImplementations(ClassStatement stmt) {
+        Map<String, Token> availableMethods = new HashMap<>();
+        Map<String, List<String>> traitProviders = new HashMap<>();
+
+        for (Token traitToken : stmt.traits()) {
+            TraitStatement trait = traits.get(traitToken.lexeme());
+            if (trait != null) {
+                collectTraitMethods(trait, availableMethods, traitProviders);
+            }
+        }
+
+        // Check if class overrides conflicts
+        Set<String> classMethods = new HashSet<>();
+        for (FunctionStatement method : stmt.methods()) {
+            classMethods.add(method.name().lexeme());
+        }
+
+        for (Map.Entry<String, List<String>> entry : traitProviders.entrySet()) {
+            String methodName = entry.getKey();
+            List<String> providers = entry.getValue();
+
+            if (providers.size() > 1 && !classMethods.contains(methodName)) {
+                TVScript.compileError(new CompileError(stmt.name(),
+                    "Class '" + stmt.name().lexeme() + "' must override method '" + methodName +
+                    "' because it is provided by multiple traits: " + providers));
+            }
+        }
+
+        // Check if all abstract trait methods are overridden
+        Map<String, AbstractMethodInfo> abstractMethods = new HashMap<>();
+        collectAbstractTraitMethods(stmt, abstractMethods);
+        for (Map.Entry<String, AbstractMethodInfo> entry : abstractMethods.entrySet()) {
+            if (!classMethods.contains(entry.getKey())) {
+                AbstractMethodInfo info = entry.getValue();
+                TVScript.compileError(new CompileError(stmt.name(),
+                    "Class '" + stmt.name().lexeme() + "' must implement method '" + entry.getKey() + "' from trait " + info.traitName() + "."));
+            }
+        }
+    }
+
+    private void collectAbstractTraitMethods(ClassStatement stmt, Map<String, AbstractMethodInfo> abstractMethods) {
+        for (Token traitToken : stmt.traits()) {
+            TraitStatement trait = traits.get(traitToken.lexeme());
+            if (trait != null) {
+                collectAbstractMethodsFromTrait(trait, abstractMethods);
+            }
+        }
+        if (stmt.superclass() != null) {
+            ClassStatement superclass = classes.get(stmt.superclass().lexeme());
+            if (superclass != null) {
+                collectAbstractTraitMethods(superclass, abstractMethods);
+            }
+        }
+    }
+
+    private void collectAbstractMethodsFromTrait(TraitStatement trait, Map<String, AbstractMethodInfo> abstractMethods) {
+        for (FunctionStatement method : trait.methods()) {
+            if (method.body() == null && !method.isDefault()) {
+                abstractMethods.put(method.name().lexeme(), new AbstractMethodInfo(method.name(), trait.name().lexeme()));
+            } else {
+                // If this trait provides a default, it "fills" the abstract method from supertraits
+                abstractMethods.remove(method.name().lexeme());
+            }
+        }
+        for (Token supertraitToken : trait.traits()) {
+            TraitStatement supertrait = traits.get(supertraitToken.lexeme());
+            if (supertrait != null) {
+                collectAbstractMethodsFromTrait(supertrait, abstractMethods);
+            }
+        }
+    }
+
+    private void collectTraitMethods(TraitStatement trait, Map<String, Token> availableMethods, Map<String, List<String>> traitProviders) {
+        for (FunctionStatement method : trait.methods()) {
+            String methodName = method.name().lexeme();
+            availableMethods.put(methodName, method.name());
+            traitProviders.computeIfAbsent(methodName, k -> new ArrayList<>()).add(trait.name().lexeme());
+        }
+
+        for (Token supertraitToken : trait.traits()) {
+            TraitStatement supertrait = traits.get(supertraitToken.lexeme());
+            if (supertrait != null) {
+                collectTraitMethods(supertrait, availableMethods, traitProviders);
+            }
+        }
+    }
+
     private void beginScope() {
         scopes.add(new HashMap<>());
     }
@@ -511,13 +765,15 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private void declare(Token name, TokenType type, boolean isConst, TokenType returnType) {
-        // Redefinition in the same scope OR any outer scope is an error in TVScript
-        if (isAlreadyDefined(name.lexeme())) {
-            TVScript.compileError(new CompileError(name, "Variable '" + name.lexeme() + "' is already defined in this or an outer scope."));
+        if (scopes.isEmpty()) return;
+        
+        // Redefinition in the same scope is always an error
+        Map<String, VariableStaticInfo> scope = scopes.get(scopes.size() - 1);
+        if (scope.containsKey(name.lexeme())) {
+            TVScript.compileError(new CompileError(name, "Variable '" + name.lexeme() + "' is already defined in this scope."));
             return;
         }
 
-        Map<String, VariableStaticInfo> scope = scopes.get(scopes.size() - 1);
         scope.put(name.lexeme(), new VariableStaticInfo(type, isConst, returnType));
     }
 
@@ -574,6 +830,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 for (CallExpression.Argument arg : expr.arguments()) arg.value().accept(this);
                 return null;
             }
+            @Override public Void visitSuperExpression(SuperExpression expr) { return null; }
+            @Override public Void visitTypeBinaryExpression(TypeBinaryExpression expr) { expr.left().accept(this); return null; }
+            @Override public Void visitGetExpression(GetExpression expr) { return null; }
+            @Override public Void visitSetExpression(SetExpression expr) { return null; }
+            @Override public Void visitThisExpression(ThisExpression expr) { return null; }
+            @Override public Void visitNewExpression(NewExpression expr) { return null; }
             @Override public Void visitFunctionExpression(FunctionExpression expr) {
                 for (FunctionStatement.Parameter p : expr.parameters()) {
                     if (p.defaultValue() != null) p.defaultValue().accept(this);
@@ -596,6 +858,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     @Override public Void visitContinueStatement(ContinueStatement stmt) { return null; }
                     @Override public Void visitFunctionStatement(FunctionStatement stmt) { return null; }
                     @Override public Void visitReturnStatement(ReturnStatement stmt) { if (stmt.value() != null) stmt.value().accept(this.exprVisitor); return null; }
+                    @Override public Void visitClassStatement(ClassStatement stmt) { return null; }
+                    @Override public Void visitTraitStatement(TraitStatement stmt) { return null; }
                     private final Expression.Visitor<Void> exprVisitor = new Expression.Visitor<Void>() {
                         @Override public Void visitBinaryExpression(BinaryExpression expr) { return null; }
                         @Override public Void visitGroupingExpression(GroupingExpression expr) { return null; }
@@ -610,6 +874,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                         @Override public Void visitMatchExpression(MatchExpression expr) { return null; }
                         @Override public Void visitCallExpression(CallExpression expr) { return null; }
                         @Override public Void visitFunctionExpression(FunctionExpression expr) { return null; }
+                        @Override public Void visitSuperExpression(SuperExpression expr) { return null; }
+                        @Override public Void visitTypeBinaryExpression(TypeBinaryExpression expr) { return null; }
+                        @Override public Void visitGetExpression(GetExpression expr) { return null; }
+                        @Override public Void visitSetExpression(SetExpression expr) { return null; }
+                        @Override public Void visitThisExpression(ThisExpression expr) { return null; }
+                        @Override public Void visitNewExpression(NewExpression expr) { return null; }
                     };
                 });
                 return null;
@@ -642,6 +912,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             @Override public Void visitContinueStatement(ContinueStatement stmt) { return null; }
             @Override public Void visitFunctionStatement(FunctionStatement stmt) { return null; }
             @Override public Void visitReturnStatement(ReturnStatement stmt) { if (stmt.value() != null) stmt.value().accept(exprVisitor); return null; }
+            @Override public Void visitClassStatement(ClassStatement stmt) { return null; }
+            @Override public Void visitTraitStatement(TraitStatement stmt) { return null; }
 
             private final Expression.Visitor<Void> exprVisitor = new Expression.Visitor<Void>() {
                 @Override public Void visitBinaryExpression(BinaryExpression expr) { expr.left().accept(this); expr.right().accept(this); return null; }
@@ -671,6 +943,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 @Override public Void visitFunctionExpression(FunctionExpression expr) {
                     return null;
                 }
+                @Override public Void visitSuperExpression(SuperExpression expr) { return null; }
+                @Override public Void visitTypeBinaryExpression(TypeBinaryExpression expr) { expr.left().accept(this); return null; }
+                @Override public Void visitGetExpression(GetExpression expr) { return null; }
+                @Override public Void visitSetExpression(SetExpression expr) { return null; }
+                @Override public Void visitThisExpression(ThisExpression expr) { return null; }
+                @Override public Void visitNewExpression(NewExpression expr) { return null; }
             };
         });
         return mutated[0];

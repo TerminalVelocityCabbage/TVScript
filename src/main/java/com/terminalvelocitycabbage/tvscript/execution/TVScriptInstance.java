@@ -14,6 +14,10 @@ public class TVScriptInstance {
         this.klass = klass;
     }
 
+    public TVScriptClass getType() {
+        return klass;
+    }
+
     public Object get(Token name) {
         if (fields.containsKey(name.lexeme())) {
             return fields.get(name.lexeme());

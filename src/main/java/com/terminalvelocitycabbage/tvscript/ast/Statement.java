@@ -28,6 +28,7 @@ public interface Statement {
         default R visitFunctionStatement(FunctionStatement stmt) { return null; }
         default R visitReturnStatement(ReturnStatement stmt) { return null; }
         default R visitClassStatement(ClassStatement stmt) { return null; }
+        default R visitTraitStatement(TraitStatement stmt) { return null; }
     }
 
     /**
@@ -117,7 +118,7 @@ public interface Statement {
         public record Case(List<Expression> patterns, Statement branch) {}
     }
 
-    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body) implements Statement {
+    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, boolean isOverride, boolean isDefault) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitFunctionStatement(this);
@@ -133,10 +134,17 @@ public interface Statement {
         }
     }
 
-    record ClassStatement(Token name, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors) implements Statement {
+    record ClassStatement(Token name, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitClassStatement(this);
+        }
+    }
+
+    record TraitStatement(Token name, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitTraitStatement(this);
         }
     }
 }

@@ -56,6 +56,8 @@ public class Parser {
     private Statement declaration() {
         try {
             if (match(CLASS)) return classDeclaration();
+            if (match(TRAIT)) return traitDeclaration();
+            if (match(MAIN)) return mainDeclaration();
             if (match(FUNCTION)) {
                 return functionDeclaration("function");
             }
@@ -274,8 +276,56 @@ public class Parser {
         return new ExpressionStatement(expr);
     }
 
+    private Statement mainDeclaration() {
+        Token keyword = previous();
+        List<FunctionStatement.Parameter> parameters = new ArrayList<>();
+        if (match(LEFT_PAREN)) {
+            if (!check(RIGHT_PAREN)) {
+                do {
+                    parameters.add(parameter());
+                } while (match(COMMA));
+            }
+            consume(RIGHT_PAREN, "Expect ')' after main parameters.");
+        }
+        consume(COLON, "Expect ':' after main.");
+
+        Statement body;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in main.");
+            body = new BlockStatement(block());
+        } else {
+            body = statement();
+            if (!(body instanceof BlockStatement)) {
+                List<Statement> stmts = new ArrayList<>();
+                stmts.add(body);
+                body = new BlockStatement(stmts);
+            }
+        }
+
+        return new FunctionStatement(keyword, parameters, null, body, false, false);
+    }
+
     private Statement classDeclaration() {
         Token name = consume(IDENTIFIER, "Expect class name.");
+
+        Token superclass = null;
+        List<Token> traits = new ArrayList<>();
+
+        if (match(LESS)) {
+            if (match(IDENTIFIER)) {
+                superclass = previous();
+            }
+
+            if (match(LEFT_BRACKET)) {
+                do {
+                    traits.add(consume(IDENTIFIER, "Expect trait name."));
+                } while (match(COMMA));
+                consume(RIGHT_BRACKET, "Expect ']' after traits.");
+            } else if (superclass == null) {
+                throw error(peek(), "Expect superclass or trait list after '<'.");
+            }
+        }
+
         consume(COLON, "Expect ':' before class body.");
         consume(NEWLINE, "Expect newline before class body.");
         consume(INDENT, "Expect indentation before class body.");
@@ -295,8 +345,10 @@ public class Parser {
                 constructors.add(constructorDeclaration());
             } else if (match(FUNCTION)) {
                 staticMethods.add((FunctionStatement)functionDeclaration("static function"));
-            } else if (check(IDENTIFIER)) {
+            } else if (match(DEFAULT, OVERRIDE) || check(IDENTIFIER)) {
                 methods.add(methodDeclaration());
+            } else if (match(PASS)) {
+                // Allow pass in class body
             } else if (match(NEWLINE)) {
                 // Ignore empty lines
             } else {
@@ -313,20 +365,65 @@ public class Parser {
             throw new ParseError();
         }
 
-        return new ClassStatement(name, fields, methods, staticMethods, constructors);
+        return new ClassStatement(name, superclass, traits, fields, methods, staticMethods, constructors);
+    }
+
+    private Statement traitDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect trait name.");
+
+        List<Token> traits = new ArrayList<>();
+        if (match(LESS)) {
+            consume(LEFT_BRACKET, "Expect '[' after '<' in trait inheritance.");
+            do {
+                traits.add(consume(IDENTIFIER, "Expect trait name."));
+            } while (match(COMMA));
+            consume(RIGHT_BRACKET, "Expect ']' after traits.");
+        }
+
+        consume(COLON, "Expect ':' before trait body.");
+        consume(NEWLINE, "Expect newline before trait body.");
+        consume(INDENT, "Expect indentation before trait body.");
+
+        List<VarStatement> fields = new ArrayList<>();
+        List<FunctionStatement> methods = new ArrayList<>();
+
+        while (!check(DEDENT) && !isAtEnd()) {
+            if (match(CONST)) {
+                fields.add((VarStatement)varDeclaration(previous()));
+            } else if (match(DEFAULT, OVERRIDE) || check(IDENTIFIER)) {
+                methods.add(methodDeclaration());
+            } else if (match(PASS)) {
+                // Allow pass in trait body
+            } else if (match(NEWLINE)) {
+                // Ignore empty lines
+            } else {
+                throw error(peek(), "Expect constant field or method declaration in trait body.");
+            }
+            while (match(NEWLINE));
+        }
+
+        consume(DEDENT, "Expect dedent after trait body.");
+
+        return new TraitStatement(name, traits, fields, methods);
     }
 
     private FunctionStatement methodDeclaration() {
+        boolean isDefault = match(DEFAULT);
+        boolean isOverride = false;
+        if (!isDefault) {
+            isOverride = match(OVERRIDE);
+        }
+
         Token name = consume(IDENTIFIER, "Expect method name.");
-        return finishFunctionDeclaration(name, "method");
+        return finishFunctionDeclaration(name, "method", isOverride, isDefault);
     }
 
     private FunctionStatement constructorDeclaration() {
         Token keyword = previous();
-        return finishFunctionDeclaration(keyword, "constructor");
+        return finishFunctionDeclaration(keyword, "constructor", false, false);
     }
 
-    private FunctionStatement finishFunctionDeclaration(Token name, String kind) {
+    private FunctionStatement finishFunctionDeclaration(Token name, String kind, boolean isOverride, boolean isDefault) {
         consume(LEFT_PAREN, "Expect '(' after " + kind + ".");
         List<FunctionStatement.Parameter> parameters = new ArrayList<>();
         if (!check(RIGHT_PAREN)) {
@@ -341,26 +438,27 @@ public class Parser {
             returnType = consumeType("Expect return type.");
         }
 
-        consume(COLON, "Expect ':' before " + kind + " body.");
-        Statement body;
-        if (match(NEWLINE)) {
-            consume(INDENT, "Expect indentation after newline in " + kind + " declaration.");
-            body = new BlockStatement(block());
-        } else {
-            body = statement();
-            if (!(body instanceof BlockStatement)) {
-                List<Statement> stmts = new ArrayList<>();
-                stmts.add(body);
-                body = new BlockStatement(stmts);
+        Statement body = null;
+        if (match(COLON)) {
+            if (match(NEWLINE)) {
+                consume(INDENT, "Expect indentation after newline in " + kind + " declaration.");
+                body = new BlockStatement(block());
+            } else {
+                body = statement();
+                if (!(body instanceof BlockStatement)) {
+                    List<Statement> stmts = new ArrayList<>();
+                    stmts.add(body);
+                    body = new BlockStatement(stmts);
+                }
             }
         }
 
-        return new FunctionStatement(name, parameters, returnType, body);
+        return new FunctionStatement(name, parameters, returnType, body, isOverride, isDefault);
     }
 
     private Statement functionDeclaration(String kind) {
         Token name = consume(IDENTIFIER, "Expect " + kind + " name.");
-        return finishFunctionDeclaration(name, kind);
+        return finishFunctionDeclaration(name, kind, false, false);
     }
 
     private FunctionStatement.Parameter parameter() {
@@ -489,12 +587,28 @@ public class Parser {
     }
 
     private Expression comparison() {
-        Expression expr = range();
+        Expression expr = typeCheck();
 
         while (match(GREATER, GREATER_EQUAL, LESS, LESS_EQUAL)) {
             Token operator = previous();
-            Expression right = range();
+            Expression right = typeCheck();
             expr = new BinaryExpression(expr, operator, right);
+        }
+
+        return expr;
+    }
+
+    private Expression typeCheck() {
+        Expression expr = range();
+
+        while (match(IS, HAS, AS)) {
+            Token operator = previous();
+            Token typeName = consumeType("Expect type name after '" + operator.lexeme() + "'.");
+            Token alias = null;
+            if (operator.type() == IS && match(ARROW)) {
+                alias = consume(IDENTIFIER, "Expect alias name after '->'.");
+            }
+            expr = new TypeBinaryExpression(expr, operator, typeName, alias);
         }
 
         return expr;
@@ -553,8 +667,19 @@ public class Parser {
             if (match(LEFT_PAREN)) {
                 expr = finishCall(expr);
             } else if (match(DOT)) {
-                Token name = consume(IDENTIFIER, "Expect property name after '.'.");
-                expr = new GetExpression(expr, name);
+                if (match(SUPER)) {
+                    Token superKeyword = previous();
+                    if (!(expr instanceof VariableExpression)) {
+                        throw error(superKeyword, "Only traits can be used with '.super'.");
+                    }
+                    Token traitName = ((VariableExpression)expr).name();
+                    consume(DOT, "Expect '.' after 'super'.");
+                    Token method = consume(IDENTIFIER, "Expect trait method name.");
+                    expr = new SuperExpression(superKeyword, method, traitName);
+                } else {
+                    Token name = consume(IDENTIFIER, "Expect property name after '.'.");
+                    expr = new GetExpression(expr, name);
+                }
             } else {
                 break;
             }
@@ -594,6 +719,17 @@ public class Parser {
             } else {
                 throw error(keyword, "Expect constructor call after 'new'.");
             }
+        }
+
+        if (match(SUPER)) {
+            Token keyword = previous();
+            if (check(LEFT_PAREN)) {
+                // This is a super constructor call
+                return new SuperExpression(keyword, new Token(IDENTIFIER, "constructor", null, keyword.line()), null);
+            }
+            consume(DOT, "Expect '.' after 'super'.");
+            Token method = consume(IDENTIFIER, "Expect superclass method name.");
+            return new SuperExpression(keyword, method, null);
         }
 
         if (match(THIS)) return new ThisExpression(previous());

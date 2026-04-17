@@ -5,6 +5,7 @@ import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.execution.Interpreter;
+import com.terminalvelocitycabbage.tvscript.execution.TVScriptFunction;
 import com.terminalvelocitycabbage.tvscript.parsing.Parser;
 import com.terminalvelocitycabbage.tvscript.parsing.Scanner;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
@@ -71,7 +72,7 @@ public class TVScript {
     }
 
     public static void run(String source) {
-        run(source, interpreter);
+        run(source, new Interpreter());
     }
 
     public static void run(String source, Interpreter interpreter) {
@@ -100,6 +101,18 @@ public class TVScript {
         }
 
         interpreter.interpret(statements);
+
+        // Execute main if it exists
+        Object main = null;
+        try {
+            main = interpreter.getEnvironment().get(new Token(TokenType.MAIN, "main", null, 0));
+        } catch (RuntimeError e) {
+            // Main not defined, that's okay for some scripts
+        }
+
+        if (main instanceof TVScriptFunction) {
+            ((TVScriptFunction) main).call(interpreter, java.util.Collections.emptyMap(), new Token(TokenType.MAIN, "main", null, 0));
+        }
     }
 
     /**

@@ -59,14 +59,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
      * @param statements The statements to interpret.
      */
     public void interpret(List<Statement> statements) {
-        try {
-            for (Statement statement : statements) {
-                execute(statement);
-            }
-        } catch (RuntimeError error) {
-            TVScript.runtimeError(error);
-            throw error;
+        for (Statement statement : statements) {
+            if (statement != null) execute(statement);
         }
+    }
+
+    public Environment getEnvironment() {
+        return environment;
     }
 
     private void execute(Statement stmt) {
@@ -287,7 +286,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             throw new RuntimeError(expr.name(), "Undefined static method '" + expr.name().lexeme() + "'.");
         }
 
-        throw new RuntimeError(expr.name(), "Only instances and classes have properties.");
+        if (object instanceof TVScriptTrait trait) {
+            Object value = trait.getConstantField(expr.name().lexeme());
+            if (value != null) return value;
+            throw new RuntimeError(expr.name(), "Undefined trait constant '" + expr.name().lexeme() + "'.");
+        }
+
+        throw new RuntimeError(expr.name(), "Only instances, classes, and traits have properties.");
     }
 
     @Override
@@ -323,6 +328,120 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
 
         return klass.instantiate(this, arguments, expr.keyword());
+    }
+
+    @Override
+    public Object visitSuperExpression(SuperExpression expr) {
+        // Find the object instance ('this') and its class
+        TVScriptInstance instance = (TVScriptInstance) environment.get(new Token(TokenType.THIS, "this", null, 0));
+
+        if (expr.traitName() != null) {
+            // Trait.super.method()
+            Object traitObj = environment.get(expr.traitName());
+            if (!(traitObj instanceof TVScriptTrait)) {
+                throw new RuntimeError(expr.traitName(), "Identifier before '.super' must be a trait.");
+            }
+            TVScriptTrait trait = (TVScriptTrait) traitObj;
+            TVScriptFunction method = trait.findMethod(expr.method().lexeme());
+            if (method == null) {
+                throw new RuntimeError(expr.method(), "Undefined method '" + expr.method().lexeme() + "' in trait '" + trait.getName() + "'.");
+            }
+            return method.bind(instance);
+        } else {
+            // super.method()
+            TVScriptClass superclass = instance.getType().superclass;
+            if (superclass == null) {
+                throw new RuntimeError(expr.keyword(), "Class has no superclass.");
+            }
+            TVScriptFunction method = superclass.findMethod(expr.method().lexeme());
+            if (method == null) {
+                throw new RuntimeError(expr.method(), "Undefined method '" + expr.method().lexeme() + "' in superclass '" + superclass.name + "'.");
+            }
+            return method.bind(instance);
+        }
+    }
+
+    @Override
+    public Object visitTypeBinaryExpression(TypeBinaryExpression expr) {
+        Object left = evaluate(expr.left());
+
+        // Resolve the type
+        Object type = null;
+        try {
+            type = environment.get(expr.typeName());
+        } catch (RuntimeError e) {
+            // It might be a basic type like 'integer'
+            // We'll handle this in checkType
+        }
+
+        switch (expr.operator().type()) {
+            case IS:
+                return checkType(left, expr.typeName(), type);
+            case HAS:
+                if (!(type instanceof TVScriptTrait)) {
+                    throw new RuntimeError(expr.typeName(), "Expected trait name after 'has'.");
+                }
+                return checkHasTrait(left, (TVScriptTrait) type);
+            case AS:
+                if (checkType(left, expr.typeName(), type)) {
+                    return left;
+                }
+                throw new RuntimeError(expr.operator(), "Cannot cast '" + stringify(left) + "' to '" + expr.typeName().lexeme() + "'.");
+        }
+        return null;
+    }
+
+    private boolean checkType(Object value, Token typeToken, Object resolvedType) {
+        if (value == null) return typeToken.type() == TokenType.NONE;
+
+        if (resolvedType instanceof TVScriptClass) {
+            if (!(value instanceof TVScriptInstance)) return false;
+            TVScriptClass klass = ((TVScriptInstance) value).getType();
+            return isClassOrSubclass(klass, (TVScriptClass) resolvedType);
+        }
+
+        if (resolvedType instanceof TVScriptTrait) {
+            return checkHasTrait(value, (TVScriptTrait) resolvedType);
+        }
+
+        // Basic types
+        switch (typeToken.type()) {
+            case TYPE_INTEGER: return value instanceof Integer;
+            case TYPE_DECIMAL: return value instanceof Double;
+            case TYPE_STRING: return value instanceof String;
+            case TYPE_BOOLEAN: return value instanceof Boolean;
+            case NONE: return value == null;
+        }
+
+        return false;
+    }
+
+    private boolean isClassOrSubclass(TVScriptClass actual, TVScriptClass expected) {
+        if (actual == expected) return true;
+        if (actual.superclass != null) return isClassOrSubclass(actual.superclass, expected);
+        return false;
+    }
+
+    private boolean checkHasTrait(Object value, TVScriptTrait trait) {
+        if (!(value instanceof TVScriptInstance)) return false;
+        TVScriptClass klass = ((TVScriptInstance) value).getType();
+        return hasTrait(klass, trait);
+    }
+
+    private boolean hasTrait(TVScriptClass klass, TVScriptTrait trait) {
+        for (TVScriptTrait t : klass.traits) {
+            if (isTraitOrSupertrait(t, trait)) return true;
+        }
+        if (klass.superclass != null) return hasTrait(klass.superclass, trait);
+        return false;
+    }
+
+    private boolean isTraitOrSupertrait(TVScriptTrait actual, TVScriptTrait expected) {
+        if (actual == expected) return true;
+        for (TVScriptTrait t : actual.supertraits) {
+            if (isTraitOrSupertrait(t, expected)) return true;
+        }
+        return false;
     }
 
     @Override
@@ -371,6 +490,28 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitIfStatement(IfStatement stmt) {
+        // Special case for pattern matching alias: if obj is Type -> alias:
+        if (stmt.condition() instanceof TypeBinaryExpression && ((TypeBinaryExpression) stmt.condition()).alias() != null) {
+            TypeBinaryExpression tbe = (TypeBinaryExpression) stmt.condition();
+            Object value = evaluate(tbe.left());
+            Object resolvedType = null;
+            try {
+                resolvedType = environment.get(tbe.typeName());
+            } catch (RuntimeError e) {}
+
+            if (checkType(value, tbe.typeName(), resolvedType)) {
+                Environment previous = environment;
+                environment = new Environment(environment);
+                try {
+                    environment.define(tbe.alias(), value, inferType(value), true);
+                    execute(stmt.thenBranch());
+                } finally {
+                    environment = previous;
+                }
+                return null;
+            }
+        }
+
         if (isTruthy(stmt.keyword(), evaluate(stmt.condition()))) {
             execute(stmt.thenBranch());
         } else if (stmt.elseBranch() != null) {
@@ -448,6 +589,24 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitClassStatement(ClassStatement stmt) {
+        TVScriptClass superclass = null;
+        if (stmt.superclass() != null) {
+            Object obj = environment.get(stmt.superclass());
+            if (!(obj instanceof TVScriptClass)) {
+                throw new RuntimeError(stmt.superclass(), "Superclass must be a class.");
+            }
+            superclass = (TVScriptClass) obj;
+        }
+
+        List<TVScriptTrait> traits = new ArrayList<>();
+        for (Token traitToken : stmt.traits()) {
+            Object obj = environment.get(traitToken);
+            if (!(obj instanceof TVScriptTrait)) {
+                throw new RuntimeError(traitToken, "Only traits can be implemented.");
+            }
+            traits.add((TVScriptTrait) obj);
+        }
+
         Map<String, TVScriptFunction> methods = new HashMap<>();
         for (FunctionStatement method : stmt.methods()) {
             TVScriptFunction function = new TVScriptFunction(method, environment);
@@ -465,8 +624,39 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             constructors.add(new TVScriptFunction(constructorStmt, environment));
         }
 
-        TVScriptClass klass = new TVScriptClass(stmt.name().lexeme(), stmt.fields(), methods, staticMethods, constructors);
+        TVScriptClass klass = new TVScriptClass(stmt.name().lexeme(), superclass, traits, stmt.fields(), methods, staticMethods, constructors);
         environment.define(stmt.name(), klass, TokenType.CLASS, true);
+        return null;
+    }
+
+    @Override
+    public Void visitTraitStatement(TraitStatement stmt) {
+        List<TVScriptTrait> traits = new ArrayList<>();
+        for (Token traitToken : stmt.traits()) {
+            Object obj = environment.get(traitToken);
+            if (!(obj instanceof TVScriptTrait)) {
+                throw new RuntimeError(traitToken, "Only traits can be extended by other traits.");
+            }
+            traits.add((TVScriptTrait) obj);
+        }
+
+        Map<String, TVScriptFunction> methods = new HashMap<>();
+        for (FunctionStatement method : stmt.methods()) {
+            TVScriptFunction function = new TVScriptFunction(method, environment);
+            methods.put(method.name().lexeme(), function);
+        }
+
+        Map<String, Object> constantFields = new HashMap<>();
+        for (VarStatement field : stmt.fields()) {
+            Object value = null;
+            if (field.initializer() != null) {
+                value = evaluate(field.initializer());
+            }
+            constantFields.put(field.name().lexeme(), value);
+        }
+
+        TVScriptTrait trait = new TVScriptTrait(stmt.name().lexeme(), traits, stmt.fields(), methods, constantFields);
+        environment.define(stmt.name(), trait, TokenType.TRAIT, true);
         return null;
     }
 
@@ -538,6 +728,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         if (value instanceof String) return TokenType.TYPE_STRING;
         if (value instanceof Boolean) return TokenType.TYPE_BOOLEAN;
         if (value instanceof TVScriptCallable) return TokenType.FUNCTION;
+        if (value instanceof TVScriptInstance) return TokenType.CLASS;
         return null;
     }
 

@@ -26,7 +26,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] `match` Statements
 - [x] Functions & First-class functions
 - [x] Classes & Objects
-- [ ] Inheritance & Traits
+- [x] Inheritance & Traits
 - [ ] Types & Operator Overloading
 
 ### Advanced Features
@@ -40,7 +40,7 @@ Currently, the language is under heavy development. Below is the implementation 
 ### Ecosystem & Runtime
 - [ ] Module System (`import`)
 - [ ] Script Visibility Modifiers
-- [ ] Main Entrypoints (`main`)
+- [x] Main Entrypoints (`main`)
 - [ ] Bytecode Compilation (Currently Interpreted)
 
 ---
@@ -809,15 +809,18 @@ print entity.health //error, undefined field (Entity does not have a field named
 ```
 
 ## Traits
-Traits are like classes, but they just define some behaviour that is expected of implementing classes. They usually don't have any behaviour of their own, but might.
+Traits are like classes, but they just define some behaviour that is expected of implementing classes. They usually don't have any behaviour of their own, but might. Traits can also extend other traits.
 ```
 trait EmitsSound:
   playSound()
-  
+
 trait CanDie:
     default checkForDeath(integer health):
         if health <= 0:
             print "dead"
+
+trait Animal < [EmitsSound, CanDie]:
+    eat()
 ```
 Classes and types can implement any number of traits that are applicable to that class or type. A class can only extend one other class. All methods defined in all traits implemented by a class MUST be defined in the class. Exceptions to this are default methods of the trait. You only need to override those if you want to.
 ```

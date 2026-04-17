@@ -21,21 +21,25 @@ public class TVScriptFunction implements TVScriptCallable {
     private final Statement body;
     private final Environment closure;
     private final Token returnType;
+    private final boolean isOverride;
+    private final boolean isDefault;
 
-    public TVScriptFunction(String name, List<Parameter> parameters, Statement body, Environment closure, Token returnType) {
+    public TVScriptFunction(String name, List<Parameter> parameters, Statement body, Environment closure, Token returnType, boolean isOverride, boolean isDefault) {
         this.name = name;
         this.parameters = parameters;
         this.body = body;
         this.closure = closure;
         this.returnType = returnType;
+        this.isOverride = isOverride;
+        this.isDefault = isDefault;
     }
 
     public TVScriptFunction(Expression.FunctionExpression declaration, Environment closure) {
-        this(null, declaration.parameters(), declaration.body(), closure, declaration.returnType());
+        this(null, declaration.parameters(), declaration.body(), closure, declaration.returnType(), false, false);
     }
 
     public TVScriptFunction(Statement.FunctionStatement declaration, Environment closure) {
-        this(declaration.name() != null ? declaration.name().lexeme() : null, declaration.parameters(), declaration.body(), closure, declaration.returnType());
+        this(declaration.name() != null ? declaration.name().lexeme() : null, declaration.parameters(), declaration.body(), closure, declaration.returnType(), declaration.isOverride(), declaration.isDefault());
     }
 
     public TVScriptFunction bind(TVScriptInstance instance) {
@@ -43,7 +47,7 @@ public class TVScriptFunction implements TVScriptCallable {
         // define "this" in the closure
         // We use a dummy token for 'this'
         environment.define(new Token(TokenType.THIS, "this", null, 0), instance, TokenType.NONE, true);
-        return new TVScriptFunction(name, parameters, body, environment, returnType);
+        return new TVScriptFunction(name, parameters, body, environment, returnType, isOverride, isDefault);
     }
 
     public List<Parameter> parameters() {
@@ -141,5 +145,13 @@ public class TVScriptFunction implements TVScriptCallable {
             super(null, null, false, false);
             this.value = value;
         }
+    }
+
+    public boolean isDefault() {
+        return isDefault;
+    }
+
+    public boolean isOverride() {
+        return isOverride;
     }
 }

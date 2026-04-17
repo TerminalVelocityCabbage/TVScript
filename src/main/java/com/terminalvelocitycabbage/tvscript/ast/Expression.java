@@ -31,6 +31,8 @@ public interface Expression {
         default R visitSetExpression(SetExpression expr) { return null; }
         default R visitThisExpression(ThisExpression expr) { return null; }
         default R visitNewExpression(NewExpression expr) { return null; }
+        default R visitSuperExpression(SuperExpression expr) { return null; }
+        default R visitTypeBinaryExpression(TypeBinaryExpression expr) { return null; }
     }
 
     /**
@@ -161,6 +163,20 @@ public interface Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitNewExpression(this);
+        }
+    }
+
+    record SuperExpression(Token keyword, Token method, Token traitName) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitSuperExpression(this);
+        }
+    }
+
+    record TypeBinaryExpression(Expression left, Token operator, Token typeName, Token alias) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitTypeBinaryExpression(this);
         }
     }
 }
