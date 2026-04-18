@@ -25,6 +25,7 @@ public interface Statement {
         default R visitBreakStatement(BreakStatement stmt) { return null; }
         default R visitContinueStatement(ContinueStatement stmt) { return null; }
         default R visitMatchStatement(MatchStatement stmt) { return null; }
+        default R visitImportStatement(ImportStatement stmt) { return null; }
         default R visitFunctionStatement(FunctionStatement stmt) { return null; }
         default R visitReturnStatement(ReturnStatement stmt) { return null; }
         default R visitClassStatement(ClassStatement stmt) { return null; }
@@ -116,6 +117,15 @@ public interface Statement {
         }
 
         public record Case(List<Expression> patterns, Statement branch) {}
+    }
+
+    record ImportStatement(Token module, List<ImportItem> items) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitImportStatement(this);
+        }
+
+        public record ImportItem(Token name, Token alias) {}
     }
 
     record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, boolean isOverride, boolean isDefault) implements Statement {

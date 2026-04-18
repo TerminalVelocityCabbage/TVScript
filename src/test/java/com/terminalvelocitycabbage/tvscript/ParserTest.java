@@ -88,4 +88,9 @@ class ParserTest {
         assertEquals("(or (and (== (+ 1 2) 3) (!= 4 5)) (group (> 6 7)))", 
             print(parse("1 + 2 == 3 and 4 != 5 or (6 > 7)")));
     }
+
+    @Test
+    void testNativeReferenceExpression() {
+        assertEquals("(native abs)", print(parse("native abs")));
+    }
 }

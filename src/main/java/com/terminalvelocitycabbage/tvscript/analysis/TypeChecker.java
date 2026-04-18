@@ -6,11 +6,12 @@ import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
 import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
+import com.terminalvelocitycabbage.tvscript.execution.TVScriptNativeFunction;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
-import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -25,6 +26,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final List<Map<String, VariableStaticInfo>> scopes = new ArrayList<>();
     private final Map<String, ClassStatement> classes = new HashMap<>();
     private final Map<String, TraitStatement> traits = new HashMap<>();
+    private final Set<String> nativeFunctionNames = new HashSet<>();
     private int loopDepth = 0;
 
     private static class VariableStaticInfo {
@@ -44,9 +46,14 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     public TypeChecker() {
+        this(List.of());
+    }
+
+    public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions) {
         Map<String, VariableStaticInfo> globalScope = new HashMap<>();
-        for (NativeFunctions.NativeFunctionDescriptor descriptor : NativeFunctions.getAll()) {
-            globalScope.put(descriptor.name(), new VariableStaticInfo(TokenType.FUNCTION, true, descriptor.returnType()));
+        for (TVScriptNativeFunction nativeFunction : nativeFunctions) {
+            globalScope.put(nativeFunction.name(), new VariableStaticInfo(TokenType.FUNCTION, true, nativeFunction.returnType()));
+            nativeFunctionNames.add(nativeFunction.name());
         }
         scopes.add(globalScope);
     }
@@ -209,6 +216,11 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             TVScript.compileError(new CompileError(stmt.keyword(), "Match statement must be exhaustive. Add a 'default' case."));
         }
 
+        return null;
+    }
+
+    @Override
+    public Void visitImportStatement(ImportStatement stmt) {
         return null;
     }
 
@@ -446,6 +458,23 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     @Override
+    public TokenType visitNativeExpression(NativeExpression expr) {
+        String name = expr.name().lexeme();
+        if (!nativeFunctionNames.contains(name)) {
+            TVScript.compileError(new CompileError(expr.keyword(), "'" + name + "' is not a native function."));
+            return null;
+        }
+
+        VariableStaticInfo info = lookup(expr.name());
+        if (info == null || info.type != TokenType.FUNCTION) {
+            TVScript.compileError(new CompileError(expr.keyword(), "'" + name + "' is not a native function."));
+            return null;
+        }
+
+        return TokenType.FUNCTION;
+    }
+
+    @Override
     public TokenType visitAssignExpression(AssignExpression expr) {
         TokenType valueType = check(expr.value());
         VariableStaticInfo info = lookup(expr.name());
@@ -525,10 +554,22 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
 
         if (expr.callee() instanceof VariableExpression varExpr) {
+            String calleeName = varExpr.name().lexeme();
+
+            if (expr.nativeCall() && !nativeFunctionNames.contains(calleeName)) {
+                TVScript.compileError(new CompileError(varExpr.name(), "'" + calleeName + "' is not a native function."));
+            }
+
+            if (!expr.nativeCall() && nativeFunctionNames.contains(calleeName)) {
+                TVScript.compileError(new CompileError(varExpr.name(), "Native functions must be called with 'native'."));
+            }
+
             VariableStaticInfo info = lookup(varExpr.name());
             if (info != null && info.type == TokenType.FUNCTION) {
                 return info.returnType;
             }
+        } else if (expr.nativeCall()) {
+            TVScript.compileError(new CompileError(expr.paren(), "Native calls must target a global function name."));
         } else if (calleeType == TokenType.FUNCTION) {
              // If we don't know the exact return type but it's a function, maybe return FUNCTION?
              // But usually it should return something more specific.

@@ -231,4 +231,31 @@ class StatementTest {
             print a""");
         assertEquals("20.0\n", outContent.toString().replace("\r\n", "\n"));
     }
+
+    @Test
+    void testImportBlockMultiline() {
+        run("""
+            import sample.library.core:
+                ThingA
+                ThingB as B
+
+            print 1""");
+        assertEquals("1\n", outContent.toString().replace("\r\n", "\n"));
+    }
+
+    @Test
+    void testImportBlockBracketSyntax() {
+        run("""
+            import sample.library.core: [ThingA, ThingB as B]
+
+            print 2""");
+        assertEquals("2\n", outContent.toString().replace("\r\n", "\n"));
+    }
+
+    @Test
+    void testImportBlockBracketTrailingCommaDisallowed() {
+        assertThrows(RuntimeException.class, () -> run("""
+            import sample.library.core: [ThingA, ThingB as B,]
+            print 3"""));
+    }
 }

@@ -53,7 +53,7 @@ class ScannerTest {
 
     @Test
     void testKeywords() {
-        Scanner scanner = new Scanner("import main public private protected mod var const integer decimal string boolean function return if else for while match default break continue print none class new trait type operator this super override is has as list set map enum event on dispatch annotation throw throws try catch async await launch all timeout pass and or true false");
+        Scanner scanner = new Scanner("import main public private protected module var const integer decimal string boolean function return if else for while match default break continue print none class new trait type operator this super override is has as list set map enum event on dispatch annotation throw throws try catch async await launch all timeout pass native and or true false");
         List<Token> tokens = scanner.scanTokens();
 
         assertEquals(TokenType.IMPORT, tokens.get(0).type());
@@ -61,7 +61,7 @@ class ScannerTest {
         assertEquals(TokenType.PUBLIC, tokens.get(2).type());
         assertEquals(TokenType.PRIVATE, tokens.get(3).type());
         assertEquals(TokenType.PROTECTED, tokens.get(4).type());
-        assertEquals(TokenType.MOD, tokens.get(5).type());
+        assertEquals(TokenType.MODULE, tokens.get(5).type());
         assertEquals(TokenType.VAR, tokens.get(6).type());
         assertEquals(TokenType.CONST, tokens.get(7).type());
         assertEquals(TokenType.TYPE_INTEGER, tokens.get(8).type());
@@ -109,10 +109,11 @@ class ScannerTest {
         assertEquals(TokenType.ALL, tokens.get(50).type());
         assertEquals(TokenType.TIMEOUT, tokens.get(51).type());
         assertEquals(TokenType.PASS, tokens.get(52).type());
-        assertEquals(TokenType.AND, tokens.get(53).type());
-        assertEquals(TokenType.OR, tokens.get(54).type());
-        assertEquals(TokenType.TRUE, tokens.get(55).type());
-        assertEquals(TokenType.FALSE, tokens.get(56).type());
+        assertEquals(TokenType.NATIVE, tokens.get(53).type());
+        assertEquals(TokenType.AND, tokens.get(54).type());
+        assertEquals(TokenType.OR, tokens.get(55).type());
+        assertEquals(TokenType.TRUE, tokens.get(56).type());
+        assertEquals(TokenType.FALSE, tokens.get(57).type());
     }
 
     @Test

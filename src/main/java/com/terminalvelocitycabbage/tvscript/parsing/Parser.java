@@ -55,6 +55,7 @@ public class Parser {
 
     private Statement declaration() {
         try {
+            if (match(IMPORT)) return importDeclaration();
             if (match(CLASS)) return classDeclaration();
             if (match(TRAIT)) return traitDeclaration();
             if (match(MAIN)) return mainDeclaration();
@@ -76,6 +77,55 @@ public class Parser {
             synchronize();
             return null;
         }
+    }
+
+    private Statement importDeclaration() {
+        Token importKeyword = previous();
+        Token first = consume(IDENTIFIER, "Expect module path after 'import'.");
+        StringBuilder modulePath = new StringBuilder(first.lexeme());
+        while (match(DOT)) {
+            Token segment = consume(IDENTIFIER, "Expect module path segment after '.'.");
+            modulePath.append('.').append(segment.lexeme());
+        }
+
+        List<ImportStatement.ImportItem> items = new ArrayList<>();
+        if (match(COLON)) {
+            if (match(LEFT_BRACKET)) {
+                if (!check(RIGHT_BRACKET)) {
+                    items.add(importItem());
+                    while (match(COMMA)) {
+                        items.add(importItem());
+                    }
+                }
+                consume(RIGHT_BRACKET, "Expect ']' after import block items.");
+            } else if (match(NEWLINE)) {
+                consume(INDENT, "Expect indentation after newline in import block.");
+                while (!check(DEDENT) && !isAtEnd()) {
+                    if (match(NEWLINE)) {
+                        continue;
+                    }
+                    items.add(importItem());
+                    if (!check(DEDENT)) {
+                        consume(NEWLINE, "Expect newline after import item.");
+                    }
+                }
+                consume(DEDENT, "Expect dedent after import block.");
+            } else {
+                throw error(peek(), "Expect '[' or newline after ':' in import statement.");
+            }
+        }
+
+        Token moduleToken = new Token(IDENTIFIER, modulePath.toString(), null, importKeyword.line());
+        return new ImportStatement(moduleToken, items);
+    }
+
+    private ImportStatement.ImportItem importItem() {
+        Token name = consume(IDENTIFIER, "Expect import item name.");
+        Token alias = null;
+        if (match(AS)) {
+            alias = consume(IDENTIFIER, "Expect alias name after 'as'.");
+        }
+        return new ImportStatement.ImportItem(name, alias);
     }
 
     private Statement varDeclaration(Token typeToken) {
@@ -665,7 +715,7 @@ public class Parser {
 
         while (true) {
             if (match(LEFT_PAREN)) {
-                expr = finishCall(expr);
+                expr = finishCall(expr, false);
             } else if (match(DOT)) {
                 if (match(SUPER)) {
                     Token superKeyword = previous();
@@ -688,27 +738,16 @@ public class Parser {
         return expr;
     }
 
-    private Expression finishCall(Expression callee) {
-        List<CallExpression.Argument> arguments = new ArrayList<>();
-        Set<String> argumentNames = new HashSet<>();
-        if (!check(RIGHT_PAREN)) {
-            do {
-                Token name = consume(IDENTIFIER, "Expect argument name.");
-                if (!argumentNames.add(name.lexeme())) {
-                    TVScript.error(name, "Duplicate argument '" + name.lexeme() + "'.");
-                    throw new ParseError();
-                }
-                consume(COLON, "Expect ':' after argument name.");
-                Expression value = expression();
-                arguments.add(new CallExpression.Argument(name, value));
-            } while (match(COMMA));
+    private Expression primary() {
+        if (match(NATIVE)) {
+            Token nativeKeyword = previous();
+            Token name = consume(IDENTIFIER, "Expect native function name after 'native'.");
+            if (match(LEFT_PAREN)) {
+                return finishCall(new VariableExpression(name), true);
+            }
+            return new NativeExpression(nativeKeyword, name);
         }
 
-        Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
-        return new CallExpression(callee, paren, arguments);
-    }
-
-    private Expression primary() {
         if (match(NEW)) {
             Token keyword = previous();
             Expression callee = call();
@@ -826,6 +865,26 @@ public class Parser {
         throw error(peek(), "Expect expression.");
     }
 
+    private Expression finishCall(Expression callee, boolean nativeCall) {
+        List<CallExpression.Argument> arguments = new ArrayList<>();
+        Set<String> argumentNames = new HashSet<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                Token name = consume(IDENTIFIER, "Expect argument name.");
+                if (!argumentNames.add(name.lexeme())) {
+                    TVScript.error(name, "Duplicate argument '" + name.lexeme() + "'.");
+                    throw new ParseError();
+                }
+                consume(COLON, "Expect ':' after argument name.");
+                Expression value = expression();
+                arguments.add(new CallExpression.Argument(name, value));
+            } while (match(COMMA));
+        }
+
+        Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
+        return new CallExpression(callee, paren, arguments, nativeCall);
+    }
+
     private Expression anonymousFunctionExpression() {
         // 'function' was already matched
         Token name = null;
@@ -926,6 +985,7 @@ public class Parser {
             switch (peek().type()) {
                 case CLASS:
                 case FUNCTION:
+                case IMPORT:
                 case VAR:
                 case CONST:
                 case IF:

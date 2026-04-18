@@ -25,7 +25,7 @@ public class Scanner {
         keywords.put("public", TokenType.PUBLIC);
         keywords.put("private", TokenType.PRIVATE);
         keywords.put("protected", TokenType.PROTECTED);
-        keywords.put("mod", TokenType.MOD);
+        keywords.put("module", TokenType.MODULE);
         keywords.put("var", TokenType.VAR);
         keywords.put("const", TokenType.CONST);
         keywords.put("integer", TokenType.TYPE_INTEGER);
@@ -75,6 +75,7 @@ public class Scanner {
         keywords.put("all", TokenType.ALL);
         keywords.put("timeout", TokenType.TIMEOUT);
         keywords.put("pass", TokenType.PASS);
+        keywords.put("native", TokenType.NATIVE);
         keywords.put("and", TokenType.AND);
         keywords.put("or", TokenType.OR);
         keywords.put("true", TokenType.TRUE);

@@ -67,6 +67,11 @@ public class AstPrinter implements Expression.Visitor<String> {
     }
 
     @Override
+    public String visitNativeExpression(NativeExpression expr) {
+        return "(native " + expr.name().lexeme() + ")";
+    }
+
+    @Override
     public String visitAssignExpression(AssignExpression expr) {
         return parenthesize("= " + expr.name().lexeme(), expr.value());
     }

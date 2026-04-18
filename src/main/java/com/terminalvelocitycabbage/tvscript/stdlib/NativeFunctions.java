@@ -4,36 +4,38 @@ import com.terminalvelocitycabbage.tvscript.execution.TVScriptNativeFunction;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+
+import static com.terminalvelocitycabbage.tvscript.execution.TVScriptNativeFunction.Parameter;
 
 public class NativeFunctions {
 
-    public record NativeFunctionDescriptor(String name, int numArguments, TokenType returnType, TVScriptNativeFunction function) {}
+    public static final TVScriptNativeFunction CLOCK = new TVScriptNativeFunction(
+            "clock",
+            List.of(),
+            TokenType.TYPE_DECIMAL,
+            args -> (double) System.currentTimeMillis()
+    );
 
-    private static final Map<String, NativeFunctionDescriptor> FUNCTIONS = new HashMap<>();
+    public static final TVScriptNativeFunction ABS = new TVScriptNativeFunction(
+            "abs",
+            List.of(new Parameter("n", TokenType.TYPE_DECIMAL)),
+            TokenType.TYPE_DECIMAL,
+            (Map<String, Object> args) -> {
+                Object val = args.get("n");
+                if (val instanceof Integer) return Math.abs((int) val);
+                if (val instanceof Double) return Math.abs((double) val);
+                return 0;
+            }
+    );
 
-    static {
-        register("clock", List.of(), TokenType.TYPE_DECIMAL, new TVScriptNativeFunction(List.of(), args -> (double) System.currentTimeMillis()));
-        register("abs", List.of("n"), TokenType.TYPE_DECIMAL, (Map<String, Object> args) -> {
-            Object val = args.get("n");
-            if (val instanceof Integer) return Math.abs((int) val);
-            if (val instanceof Double) return Math.abs((double) val);
-            return 0;
-        });
-    }
+    private static final List<TVScriptNativeFunction> FUNCTIONS = List.of(
+            CLOCK,
+            ABS
+    );
 
-    private static void register(String name, List<String> parameters, TokenType returnType, TVScriptNativeFunction function) {
-        FUNCTIONS.put(name, new NativeFunctionDescriptor(name, parameters.size(), returnType, function));
-    }
-
-    private static void register(String name, List<String> parameters, TokenType returnType, Function<Map<String, Object>, Object> implementation) {
-        register(name, parameters, returnType, new TVScriptNativeFunction(parameters, implementation));
-    }
-
-    public static Collection<NativeFunctionDescriptor> getAll() {
-        return FUNCTIONS.values();
+    public static Collection<TVScriptNativeFunction> getAll() {
+        return FUNCTIONS;
     }
 }

@@ -1,6 +1,6 @@
 # TVScript Reference
 
-TVScript is a high-level, object-oriented, statically typed, game or mod scripting language. It uses an indentation-based syntax similar to languages like Python. Its goal is to be optimized for embedding into java game engines, but is licensed under the MIT license, so feel free to write a runtime for your language of choice. The language definition itself does not require that it be implemented in Java; that's just what I use.
+TVScript is a high-level, object-oriented, statically typed, game or module scripting language. It uses an indentation-based syntax similar to languages like Python. Its goal is to be optimized for embedding into java game engines, but is licensed under the MIT license, so feel free to write a runtime for your language of choice. The language definition itself does not require that it be implemented in Java; that's just what I use.
 
 ## Language Design Goals
 - **Fast** TVScript is designed to be fast and efficient. Eventually this language will be compiled to JVM bytecode, so it should run just as fast as Java.
@@ -194,7 +194,7 @@ The following words are reserved and cannot be used as identifiers:
 | `public` | Public visibility modifier |
 | `private` | Private visibility modifier |
 | `protected` | Protected visibility modifier |
-| `mod` | Mod visibility modifier |
+| `module` | Module visibility modifier |
 | `var` | Defines a variable |
 | `const` | Defines a constant variable |
 | `integer` | Defines an integer variable |
@@ -242,6 +242,7 @@ The following words are reserved and cannot be used as identifiers:
 | `all` | Used in await blocks for all-or-nothing completion |
 | `timeout` | Used in await blocks to set a timeout |
 | `pass` | A do nothing statement |
+| `native` | Calls a native function |
 
 ## Operators
 The following operators are supported:
@@ -300,42 +301,42 @@ Scripts are expected to be organized in a hierarchical filesystem, and as such t
 - `public`: anything anywhere has access
 - `private`: only this block has access
 - `protected`: all scripts in this folder have access
-- `mod`: all scripts in this mod have access (game engine specific)
+- `module`: all scripts in this module have access (game engine specific)
 Given the following file structure:
 ```fs
-mods/
-  mod1/
+modules/
+  module1/
     scripts/
       package1/
         script1.tvs
         script2.tvs
       package2/
         script3.tvs
-  mod2/
+  module2/
     scripts
       package1/
         script2.tvs
 ```
-classes defined in script1.tvs belong to the mod "mod1" and the package "package1", and thus it's reference will be `mod1.package1.script1.ClassName`.  any subfolders in a package will also map to a new section in the reference separated by a period `.`, to modify a classes visibility you just prefix any definition by the visibility modifier (the visibility modifier MUST come first in the list of modifiers).
-`mods/mod1/scripts/package1/script1.tvs`
+classes defined in script1.tvs belong to the module "module1" and the package "package1", and thus it's reference will be `module1.package1.script1.ClassName`. any subfolders in a package will also map to a new section in the reference separated by a period `.`, to modify a class visibility you just prefix any definition by the visibility modifier (the visibility modifier MUST come first in the list of modifiers).
+`modules/module1/scripts/package1/script1.tvs`
 ```
 public class ModInfo:
   string gameVersion
   private string hostName
-  mod string mainEntrypoint
+  module string mainEntrypoint
 ```
-For the above definition any script can access `ModInfo` to create instances of it etc. Any script in the package1 folder can then get the gameVersion from that object, however the hostName field is accessible only to methods defined in the same block as the field (the class definition), similarly only scripts in the mod1 folder can access the mainEntrypoint field.
+For the above definition any script can access `ModInfo` to create instances of it etc. Any script in the package1 folder can then get the gameVersion from that object, however the hostName field is accessible only to methods defined in the same block as the field (the class definition), similarly only scripts in the module1 folder can access the mainEntrypoint field.
 
-In a regular environment the mod visibility modifier will never be used, but when embedding this language into a game engine, it's useful.
+In a regular environment the module visibility modifier will never be used, but when embedding this language into a game engine, it's useful.
 ### Default visibility
-By default, all classes, methods, and fields are protected. This means they can only be accessed by scripts in the same package or a subpackage.
+By default, all classes, methods, and fields are private. (Planned behavior, not yet implemented.)
 Scripts are public, and there is currently no way to make a script private, you control the visibility of members individually.
 
 ### Importing functionality
 to import some functionality from one script to another, you can use the import keyword at the start of your file
-`mods/mod1/scripts/package2/script3.tvs`
+`modules/module1/scripts/package2/script3.tvs`
 ```
-import mod1.package1.script1.ModInfo
+import module1.package1.script1.ModInfo
 
 ModInfo modinfo = new ModInfo()
 ```
@@ -357,6 +358,43 @@ import some.other.package.here.ModInfo as OtherModInfo //you can use this if the
 ModInfo modinfo3 = new ModInfo()
 OtherModInfo modinfo4 = new OtherModInfo()
 ```
+
+Import blocks are also supported so you can avoid repeating the module path:
+```
+import some.package.here:
+  ModInfo
+  OtherThing as AliasThing
+  helperFunction
+```
+
+For one-line imports, you can use brackets:
+```
+import some.package.here: [ModInfo, OtherThing as AliasThing, helperFunction]
+```
+
+Trailing commas are not allowed in either import block format.
+
+### Native function calls
+Native functions must be called with the `native` keyword.
+```
+print native abs(n: -10)
+print native clock()
+```
+Regular function calls must not use `native`.
+
+### Embedding native functions
+TVScript does not automatically configure global native functions anymore. Embedders must build and provide their own global environment.
+```java
+Environment globals = new Environment.GlobalBuilder()
+    .withNativeFunction(NativeFunctions.CLOCK)
+    .withNativeFunction(NativeFunctions.ABS)
+    .build();
+
+Interpreter interpreter = new Interpreter(globals);
+```
+
+Native function signatures should use TVScript types so tooling and runtime errors can report intended signatures clearly, for example:
+`native abs(decimal n) -> decimal`
 
 ## Comments
 Anything after a `//` is a comment. Comments are ignored by the compiler and are only for human readability.

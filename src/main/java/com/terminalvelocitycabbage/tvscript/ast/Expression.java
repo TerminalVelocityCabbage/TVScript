@@ -22,6 +22,7 @@ public interface Expression {
         default R visitTernaryExpression(TernaryExpression expr) { return null; }
         default R visitInterpolationExpression(InterpolationExpression expr) { return null; }
         default R visitVariableExpression(VariableExpression expr) { return null; }
+        default R visitNativeExpression(NativeExpression expr) { return null; }
         default R visitAssignExpression(AssignExpression expr) { return null; }
         default R visitRangeExpression(RangeExpression expr) { return null; }
         default R visitMatchExpression(MatchExpression expr) { return null; }
@@ -99,6 +100,13 @@ public interface Expression {
         }
     }
 
+    record NativeExpression(Token keyword, Token name) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitNativeExpression(this);
+        }
+    }
+
     record AssignExpression(Token name, Expression value) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
@@ -124,7 +132,7 @@ public interface Expression {
 
     public record Argument(Token name, Expression value) {}
 
-    record CallExpression(Expression callee, Token paren, List<Argument> arguments) implements Expression {
+    record CallExpression(Expression callee, Token paren, List<Argument> arguments, boolean nativeCall) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitCallExpression(this);

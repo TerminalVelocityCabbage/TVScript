@@ -4,8 +4,11 @@ import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Manages variable bindings and scopes during execution.
@@ -14,6 +17,8 @@ public class Environment {
 
     private final Environment enclosing;
     private final Map<String, VariableInfo> values = new HashMap<>();
+    private final Set<String> nativeFunctionNames = new HashSet<>();
+    private final Map<String, TVScriptNativeFunction> nativeFunctions = new HashMap<>();
 
     /**
      * Information about a variable.
@@ -47,6 +52,28 @@ public class Environment {
 
     public void defineNative(String name, Object value) {
         values.put(name, new VariableInfo(value, TokenType.FUNCTION, true));
+        nativeFunctionNames.add(name);
+        if (value instanceof TVScriptNativeFunction nativeFunction) {
+            nativeFunctions.put(name, nativeFunction);
+        }
+    }
+
+    public boolean isNativeFunctionName(String name) {
+        if (nativeFunctionNames.contains(name)) {
+            return true;
+        }
+        return enclosing != null && enclosing.isNativeFunctionName(name);
+    }
+
+    public Collection<TVScriptNativeFunction> getNativeFunctions() {
+        Map<String, TVScriptNativeFunction> result = new HashMap<>();
+        if (enclosing != null) {
+            for (TVScriptNativeFunction function : enclosing.getNativeFunctions()) {
+                result.put(function.name(), function);
+            }
+        }
+        result.putAll(nativeFunctions);
+        return result.values();
     }
 
     /**
@@ -159,6 +186,26 @@ public class Environment {
                 break;
             default:
                 break;
+        }
+    }
+
+    public static class GlobalBuilder {
+        private final Environment global = new Environment();
+
+        public GlobalBuilder withNativeFunction(TVScriptNativeFunction function) {
+            global.defineNative(function.name(), function);
+            return this;
+        }
+
+        public GlobalBuilder withNativeFunctions(Collection<TVScriptNativeFunction> functions) {
+            for (TVScriptNativeFunction function : functions) {
+                withNativeFunction(function);
+            }
+            return this;
+        }
+
+        public Environment build() {
+            return global;
         }
     }
 }

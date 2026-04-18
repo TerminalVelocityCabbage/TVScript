@@ -15,8 +15,6 @@ import java.util.Map;
 import com.terminalvelocitycabbage.tvscript.ast.Statement.MatchStatement.Case;
 import com.terminalvelocitycabbage.tvscript.ast.Expression.Argument;
 
-import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
-
 /**
  * Executes the AST by visiting each node.
  */
@@ -39,19 +37,20 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
     }
 
-    private Environment environment = new Environment();
+    private final Environment configuredGlobals;
+    private Environment environment;
 
     public Interpreter() {
-        for (NativeFunctions.NativeFunctionDescriptor descriptor : NativeFunctions.getAll()) {
-            environment.defineNative(descriptor.name(), descriptor.function());
-        }
+        this(new Environment());
+    }
+
+    public Interpreter(Environment configuredGlobals) {
+        this.configuredGlobals = configuredGlobals;
+        this.environment = new Environment(configuredGlobals);
     }
 
     public void reset() {
-        environment = new Environment();
-        for (NativeFunctions.NativeFunctionDescriptor descriptor : NativeFunctions.getAll()) {
-            environment.defineNative(descriptor.name(), descriptor.function());
-        }
+        environment = new Environment(configuredGlobals);
     }
 
     /**
@@ -66,6 +65,10 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     public Environment getEnvironment() {
         return environment;
+    }
+
+    public java.util.Collection<TVScriptNativeFunction> getNativeFunctions() {
+        return environment.getNativeFunctions();
     }
 
     private void execute(Statement stmt) {
@@ -218,6 +221,15 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Object visitNativeExpression(NativeExpression expr) {
+        Object value = environment.get(expr.name());
+        if (!environment.isNativeFunctionName(expr.name().lexeme()) || !(value instanceof TVScriptNativeFunction)) {
+            throw new RuntimeError(expr.keyword(), "'" + expr.name().lexeme() + "' is not a native function.");
+        }
+        return value;
+    }
+
+    @Override
     public Object visitAssignExpression(AssignExpression expr) {
         Object value = evaluate(expr.value());
         environment.assign(expr.name(), value);
@@ -259,6 +271,20 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     @Override
     public Object visitCallExpression(CallExpression expr) {
         Object callee = evaluate(expr.callee());
+
+        if (expr.nativeCall()) {
+            if (!(expr.callee() instanceof VariableExpression variableExpression)) {
+                throw new RuntimeError(expr.paren(), "Native calls must target a global function name.");
+            }
+
+            if (!environment.isNativeFunctionName(variableExpression.name().lexeme()) || !(callee instanceof TVScriptNativeFunction)) {
+                throw new RuntimeError(expr.paren(), "'" + variableExpression.name().lexeme() + "' is not a native function.");
+            }
+        } else if (expr.callee() instanceof VariableExpression variableExpression
+                && environment.isNativeFunctionName(variableExpression.name().lexeme())
+                && callee instanceof TVScriptNativeFunction) {
+            throw new RuntimeError(expr.paren(), "Native functions must be called with 'native'.");
+        }
 
         if (!(callee instanceof TVScriptCallable)) {
             throw new RuntimeError(expr.paren(), "Can only call functions and classes.");
@@ -719,6 +745,11 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             execute(stmt.defaultBranch());
         }
 
+        return null;
+    }
+
+    @Override
+    public Void visitImportStatement(ImportStatement stmt) {
         return null;
     }
 

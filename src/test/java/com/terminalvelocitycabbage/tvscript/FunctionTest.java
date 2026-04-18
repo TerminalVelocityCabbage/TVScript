@@ -2,11 +2,14 @@ package com.terminalvelocitycabbage.tvscript;
 
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
+import com.terminalvelocitycabbage.tvscript.execution.Environment;
 import com.terminalvelocitycabbage.tvscript.execution.Interpreter;
 import com.terminalvelocitycabbage.tvscript.parsing.Parser;
 import com.terminalvelocitycabbage.tvscript.parsing.Scanner;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.stdlib.NativeFunctions;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,12 +22,20 @@ import static org.junit.jupiter.api.Assertions.*;
 public class FunctionTest {
 
     private Interpreter interpreter;
+    private static Environment globalEnvironment;
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final PrintStream originalOut = System.out;
 
+    @BeforeAll
+    public static void setupGlobalEnvironment() {
+        globalEnvironment = new Environment.GlobalBuilder()
+                .withNativeFunctions(NativeFunctions.getAll())
+                .build();
+    }
+
     @BeforeEach
     public void setUp() {
-        interpreter = new Interpreter();
+        interpreter = new Interpreter(globalEnvironment);
         System.setOut(new PrintStream(outContent));
     }
 
@@ -123,8 +134,8 @@ public class FunctionTest {
     @Test
     public void testNativeFunction() {
         run("""
-            print abs(n: -10)
-            print abs(n: 5.5)
+            print native abs(n: -10)
+            print native abs(n: 5.5)
             """);
         assertOutput("10\n5.5");
     }
@@ -133,27 +144,59 @@ public class FunctionTest {
     public void testNativeFunctionWrongArgument() {
         RuntimeError error = assertThrows(RuntimeError.class, () -> {
             run("""
-                print abs(wrong: -10)
+                print native abs(wrong: -10)
                 """);
         });
-        assertEquals("Unexpected argument 'wrong'.", error.getMessage());
+        assertEquals("Expected native abs(decimal n) -> decimal, but found unexpected argument 'wrong'.", error.getMessage());
 
         error = assertThrows(RuntimeError.class, () -> {
             run("""
-                print clock(extra: 1)
+                print native clock(extra: 1)
                 """);
         });
-        assertEquals("Unexpected argument 'extra'.", error.getMessage());
+        assertEquals("Expected native clock() -> decimal, but found unexpected argument 'extra'.", error.getMessage());
     }
 
     @Test
     public void testNativeFunctionMissingArgument() {
         RuntimeError error = assertThrows(RuntimeError.class, () -> {
             run("""
-                print abs()
+                print native abs()
                 """);
         });
-        assertEquals("Missing argument 'n'.", error.getMessage());
+        assertEquals("Expected native abs(decimal n) -> decimal, but missing argument 'n'.", error.getMessage());
+    }
+
+    @Test
+    public void testNativeFunctionRequiresNativeKeyword() {
+        CompileError error = assertThrows(CompileError.class, () -> {
+            run("""
+                print abs(n: -10)
+                """);
+        });
+        assertEquals("Native functions must be called with 'native'.", error.getMessage());
+    }
+
+    @Test
+    public void testNativeFunctionCanBeFirstClass() {
+        run("""
+            var absoluteValue = native abs
+            print absoluteValue(n: -12)
+            """);
+        assertOutput("12");
+    }
+
+    @Test
+    public void testNativeReferenceMustBeNativeFunction() {
+        CompileError error = assertThrows(CompileError.class, () -> {
+            run("""
+                function doThing():
+                    pass
+
+                var f = native doThing
+                """);
+        });
+        assertEquals("'doThing' is not a native function.", error.getMessage());
     }
 
     @Test
