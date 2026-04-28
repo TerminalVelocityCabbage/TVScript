@@ -30,7 +30,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [ ] Types & Operator Overloading
 
 ### Advanced Features
-- [ ] Built-in Collections (`list`, `set`, `map`)
+- [x] Built-in Collections (`list`, `set`, `map`)
 - [ ] Generics
 - [ ] Error Handling (`try` / `catch` / `throw`)
 - [ ] Async Execution (`async` / `await` / `launch`)
@@ -607,6 +607,18 @@ map[string|integer] employeeAges = new map[|]("brad": 20, "samantha": 21, "craig
 ```
 integer bradsAge = employeeAges["brad"] //sets variable bradsAge to 20
 employeeAges["brad"] = 21 //Updates brad's age in the map to 21
+```
+### Properties and map helpers
+```
+integer size = employeeAges.size
+
+boolean hasBrad = employeeAges.containsKey("brad")
+integer removedAge = employeeAges.remove("brad")
+
+list[string] keys = employeeAges.keys()
+list[integer] values = employeeAges.values()
+
+employeeAges.clear() //removes all entries
 ```
 
 ## Loops

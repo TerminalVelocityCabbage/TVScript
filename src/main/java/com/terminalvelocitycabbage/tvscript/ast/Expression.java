@@ -30,6 +30,10 @@ public interface Expression {
         default R visitFunctionExpression(FunctionExpression expr) { return null; }
         default R visitGetExpression(GetExpression expr) { return null; }
         default R visitSetExpression(SetExpression expr) { return null; }
+        default R visitIndexExpression(IndexExpression expr) { return null; }
+        default R visitIndexSetExpression(IndexSetExpression expr) { return null; }
+        default R visitSliceExpression(SliceExpression expr) { return null; }
+        default R visitCollectionLiteralExpression(CollectionLiteralExpression expr) { return null; }
         default R visitThisExpression(ThisExpression expr) { return null; }
         default R visitNewExpression(NewExpression expr) { return null; }
         default R visitSuperExpression(SuperExpression expr) { return null; }
@@ -130,7 +134,13 @@ public interface Expression {
         public record Case(List<Expression> patterns, Expression branch) {}
     }
 
-    public record Argument(Token name, Expression value) {}
+    public record Argument(Token name, Expression value) {
+        public boolean isNamed() {
+            return name != null;
+        }
+    }
+
+    public record MapEntry(Expression key, Expression value) {}
 
     record CallExpression(Expression callee, Token paren, List<Argument> arguments, boolean nativeCall) implements Expression {
         @Override
@@ -157,6 +167,40 @@ public interface Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitSetExpression(this);
+        }
+    }
+
+    record IndexExpression(Expression object, Token bracket, Expression index) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitIndexExpression(this);
+        }
+    }
+
+    record IndexSetExpression(Expression object, Token bracket, Expression index, Expression value) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitIndexSetExpression(this);
+        }
+    }
+
+    record SliceExpression(Expression object, Token bracket, Expression start, Expression end) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitSliceExpression(this);
+        }
+    }
+
+    record CollectionLiteralExpression(
+            Token keyword,
+            Token collectionType,
+            Expression size,
+            List<Expression> elements,
+            List<MapEntry> entries
+    ) implements Expression {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitCollectionLiteralExpression(this);
         }
     }
 

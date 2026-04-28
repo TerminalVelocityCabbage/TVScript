@@ -9,9 +9,13 @@ import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import com.terminalvelocitycabbage.tvscript.ast.Statement.MatchStatement.Case;
 import com.terminalvelocitycabbage.tvscript.ast.Expression.Argument;
 
@@ -35,6 +39,84 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             this.start = start;
             this.end = end;
         }
+    }
+
+    private static class TVList {
+        private final List<Object> values;
+
+        TVList(List<Object> values) {
+            this.values = values;
+        }
+
+        List<Object> values() {
+            return values;
+        }
+
+        @Override
+        public String toString() {
+            return values.toString();
+        }
+    }
+
+    private static class TVSet {
+        private final Set<Object> values;
+
+        TVSet(Set<Object> values) {
+            this.values = values;
+        }
+
+        Set<Object> values() {
+            return values;
+        }
+
+        @Override
+        public String toString() {
+            return values.toString();
+        }
+    }
+
+    private static class TVMap {
+        private final Map<Object, Object> values;
+
+        TVMap(Map<Object, Object> values) {
+            this.values = values;
+        }
+
+        Map<Object, Object> values() {
+            return values;
+        }
+
+        @Override
+        public String toString() {
+            return values.toString();
+        }
+    }
+
+    private abstract static class CollectionMethod implements TVScriptCallable {
+        private final String name;
+        private final int arity;
+
+        CollectionMethod(String name, int arity) {
+            this.name = name;
+            this.arity = arity;
+        }
+
+        @Override
+        public int arity() {
+            return arity;
+        }
+
+        @Override
+        public Object call(Interpreter interpreter, Map<String, Object> arguments, Token callToken) {
+            List<Object> positional = interpreter.extractPositionalArguments(arguments, callToken, name);
+            if (positional.size() != arity) {
+                throw new RuntimeError(callToken,
+                        "Method '" + name + "' expects " + arity + " argument(s), but got " + positional.size() + ".");
+            }
+            return invoke(interpreter, positional, callToken);
+        }
+
+        protected abstract Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken);
     }
 
     private final Environment configuredGlobals;
@@ -239,13 +321,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     @Override
     public Object visitRangeExpression(RangeExpression expr) {
         Object start = evaluate(expr.start());
-        Object end = evaluate(expr.end());
+        Object end = expr.end() == null ? null : evaluate(expr.end());
 
-        if (!(start instanceof Integer) || !(end instanceof Integer)) {
+        if (!(start instanceof Integer) || (end != null && !(end instanceof Integer))) {
             throw new RuntimeError(expr.operator(), "Range bounds must be integers.");
         }
 
-        return new RangeValue((int) start, (int) end);
+        return new RangeValue((int) start, end == null ? Integer.MIN_VALUE : (int) end);
     }
 
     @Override
@@ -292,8 +374,10 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         TVScriptCallable function = (TVScriptCallable) callee;
         Map<String, Object> arguments = new HashMap<>();
+        int positionalIndex = 0;
         for (Argument arg : expr.arguments()) {
-            arguments.put(arg.name().lexeme(), evaluate(arg.value()));
+            String key = arg.isNamed() ? arg.name().lexeme() : "$" + positionalIndex++;
+            arguments.put(key, evaluate(arg.value()));
         }
 
         return function.call(this, arguments, expr.paren());
@@ -318,6 +402,18 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             throw new RuntimeError(expr.name(), "Undefined trait constant '" + expr.name().lexeme() + "'.");
         }
 
+        if (object instanceof TVList list) {
+            return getListProperty(list, expr.name());
+        }
+
+        if (object instanceof TVSet set) {
+            return getSetProperty(set, expr.name());
+        }
+
+        if (object instanceof TVMap map) {
+            return getMapProperty(map, expr.name());
+        }
+
         throw new RuntimeError(expr.name(), "Only instances, classes, and traits have properties.");
     }
 
@@ -335,6 +431,129 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Object visitIndexExpression(IndexExpression expr) {
+        Object object = evaluate(expr.object());
+        Object index = evaluate(expr.index());
+
+        if (object instanceof TVList list) {
+            if (!(index instanceof Integer)) {
+                throw new RuntimeError(expr.bracket(), "List index must be an integer.");
+            }
+            int resolvedIndex = resolveListIndex(expr.bracket(), (int) index, list.values().size());
+            return list.values().get(resolvedIndex);
+        }
+
+        if (object instanceof TVMap map) {
+            if (!map.values().containsKey(index)) {
+                throw new RuntimeError(expr.bracket(), "Map key not found: " + stringify(index) + ".");
+            }
+            return map.values().get(index);
+        }
+
+        throw new RuntimeError(expr.bracket(), "Only lists and maps support index access.");
+    }
+
+    @Override
+    public Object visitIndexSetExpression(IndexSetExpression expr) {
+        Object object = evaluate(expr.object());
+        Object index = evaluate(expr.index());
+        Object value = evaluate(expr.value());
+
+        if (object instanceof TVList list) {
+            if (!(index instanceof Integer)) {
+                throw new RuntimeError(expr.bracket(), "List index must be an integer.");
+            }
+            int resolvedIndex = resolveListIndex(expr.bracket(), (int) index, list.values().size());
+            list.values().set(resolvedIndex, value);
+            return value;
+        }
+
+        if (object instanceof TVMap map) {
+            map.values().put(index, value);
+            return value;
+        }
+
+        throw new RuntimeError(expr.bracket(), "Only lists and maps support index assignment.");
+    }
+
+    @Override
+    public Object visitSliceExpression(SliceExpression expr) {
+        Object object = evaluate(expr.object());
+        if (!(object instanceof TVList list)) {
+            throw new RuntimeError(expr.bracket(), "Only lists support slicing.");
+        }
+
+        int size = list.values().size();
+        if (size == 0) {
+            return new TVList(new ArrayList<>());
+        }
+
+        Integer startValue = evaluateOptionalIndex(expr.bracket(), expr.start(), true);
+        Integer endValue = evaluateOptionalIndex(expr.bracket(), expr.end(), true);
+
+        int start = startValue == null ? 0 : startValue;
+        int end = endValue == null ? size - 1 : endValue;
+
+        if (start >= size) {
+            throw new RuntimeError(expr.bracket(), "List index " + start + " is out of bounds for size " + size + ".");
+        }
+        if (end >= size) {
+            throw new RuntimeError(expr.bracket(), "List index " + end + " is out of bounds for size " + size + ".");
+        }
+
+        if (start > end) {
+            return new TVList(new ArrayList<>());
+        }
+
+        return new TVList(new ArrayList<>(list.values().subList(start, end + 1)));
+    }
+
+    @Override
+    public Object visitCollectionLiteralExpression(CollectionLiteralExpression expr) {
+        if (expr.collectionType().type() == TokenType.LIST) {
+            if (expr.size() != null) {
+                Object sizeValue = evaluate(expr.size());
+                if (!(sizeValue instanceof Integer integerSize)) {
+                    throw new RuntimeError(expr.keyword(), "List size must be an integer.");
+                }
+                if (integerSize < 0) {
+                    throw new RuntimeError(expr.keyword(), "List size must be non-negative.");
+                }
+
+                List<Object> values = new ArrayList<>();
+                for (int i = 0; i < integerSize; i++) {
+                    values.add(null);
+                }
+                return new TVList(values);
+            }
+
+            List<Object> elements = new ArrayList<>();
+            for (Expression element : expr.elements()) {
+                elements.add(evaluate(element));
+            }
+            return new TVList(elements);
+        }
+
+        if (expr.collectionType().type() == TokenType.SET) {
+            Set<Object> values = new LinkedHashSet<>();
+            for (Expression element : expr.elements()) {
+                values.add(evaluate(element));
+            }
+            return new TVSet(values);
+        }
+
+        if (expr.collectionType().type() == TokenType.MAP) {
+            Map<Object, Object> values = new LinkedHashMap<>();
+            for (MapEntry entry : expr.entries()) {
+                values.put(evaluate(entry.key()), evaluate(entry.value()));
+            }
+            return new TVMap(values);
+        }
+
+        throw new RuntimeError(expr.keyword(), "Unsupported collection type.");
+    }
+
+    @Override
     public Object visitThisExpression(ThisExpression expr) {
         return environment.get(expr.keyword());
     }
@@ -349,8 +568,10 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         TVScriptClass klass = (TVScriptClass) callee;
         Map<String, Object> arguments = new HashMap<>();
+        int positionalIndex = 0;
         for (Argument argument : expr.arguments()) {
-            arguments.put(argument.name().lexeme(), evaluate(argument.value()));
+            String key = argument.isNamed() ? argument.name().lexeme() : "$" + positionalIndex++;
+            arguments.put(key, evaluate(argument.value()));
         }
 
         return klass.instantiate(this, arguments, expr.keyword());
@@ -564,29 +785,29 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitForStatement(ForStatement stmt) {
-        Object rangeObj = evaluate(stmt.range());
-        if (!(rangeObj instanceof RangeValue)) {
-            throw new RuntimeError(stmt.keyword(), "Expected range in for loop.");
-        }
-        RangeValue range = (RangeValue) rangeObj;
+        Object iterableObj = evaluate(stmt.range());
 
         Environment previous = this.environment;
         try {
-            for (int i = range.start; i <= range.end; i++) {
-                if (stmt.name() != null) {
-                    this.environment = new Environment(previous);
-                    this.environment.define(stmt.name(), i, stmt.type().type(), false);
-                } else {
-                    this.environment = new Environment(previous);
+            if (iterableObj instanceof RangeValue range) {
+                if (stmt.valueName() != null) {
+                    throw new RuntimeError(stmt.keyword(), "Range iteration supports only a single loop variable.");
                 }
-
-                try {
-                    execute(stmt.body());
-                } catch (ContinueException e) {
-                    // continue
-                } finally {
-                    this.environment = previous;
+                executeRangeLoop(stmt, previous, range);
+            } else if (iterableObj instanceof TVList list) {
+                if (stmt.valueName() != null) {
+                    throw new RuntimeError(stmt.keyword(), "List iteration supports only a single loop variable.");
                 }
+                executeValueLoop(stmt, previous, list.values());
+            } else if (iterableObj instanceof TVSet set) {
+                if (stmt.valueName() != null) {
+                    throw new RuntimeError(stmt.keyword(), "Set iteration supports only a single loop variable.");
+                }
+                executeValueLoop(stmt, previous, set.values());
+            } else if (iterableObj instanceof TVMap map) {
+                executeMapLoop(stmt, previous, map.values());
+            } else {
+                throw new RuntimeError(stmt.keyword(), "Expected range, list, set, or map in for loop.");
             }
         } catch (BreakException e) {
             // break
@@ -594,6 +815,60 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             this.environment = previous;
         }
         return null;
+    }
+
+    private void executeRangeLoop(ForStatement stmt, Environment previous, RangeValue range) {
+        for (int i = range.start; i <= range.end; i++) {
+            this.environment = new Environment(previous);
+            if (stmt.name() != null) {
+                this.environment.define(stmt.name(), i, stmt.type().type(), false);
+            }
+
+            try {
+                execute(stmt.body());
+            } catch (ContinueException e) {
+                // continue
+            } finally {
+                this.environment = previous;
+            }
+        }
+    }
+
+    private void executeValueLoop(ForStatement stmt, Environment previous, Iterable<?> values) {
+        for (Object value : values) {
+            this.environment = new Environment(previous);
+            if (stmt.name() != null) {
+                this.environment.define(stmt.name(), value, stmt.type().type(), false);
+            }
+
+            try {
+                execute(stmt.body());
+            } catch (ContinueException e) {
+                // continue
+            } finally {
+                this.environment = previous;
+            }
+        }
+    }
+
+    private void executeMapLoop(ForStatement stmt, Environment previous, Map<Object, Object> values) {
+        for (Map.Entry<Object, Object> entry : values.entrySet()) {
+            this.environment = new Environment(previous);
+            if (stmt.name() != null) {
+                this.environment.define(stmt.name(), entry.getKey(), stmt.type().type(), false);
+            }
+            if (stmt.valueName() != null) {
+                this.environment.define(stmt.valueName(), entry.getValue(), stmt.valueType().type(), false);
+            }
+
+            try {
+                execute(stmt.body());
+            } catch (ContinueException e) {
+                // continue
+            } finally {
+                this.environment = previous;
+            }
+        }
     }
 
     @Override
@@ -758,9 +1033,207 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         if (value instanceof Double) return TokenType.TYPE_DECIMAL;
         if (value instanceof String) return TokenType.TYPE_STRING;
         if (value instanceof Boolean) return TokenType.TYPE_BOOLEAN;
+        if (value instanceof TVList) return TokenType.LIST;
+        if (value instanceof TVSet) return TokenType.SET;
+        if (value instanceof TVMap) return TokenType.MAP;
         if (value instanceof TVScriptCallable) return TokenType.FUNCTION;
         if (value instanceof TVScriptInstance) return TokenType.CLASS;
         return null;
+    }
+
+    private List<Object> extractPositionalArguments(Map<String, Object> arguments, Token callToken, String methodName) {
+        for (String key : arguments.keySet()) {
+            if (!key.startsWith("$")) {
+                throw new RuntimeError(callToken, "Method '" + methodName + "' only supports positional arguments.");
+            }
+        }
+
+        List<Object> positional = new ArrayList<>();
+        int index = 0;
+        while (arguments.containsKey("$" + index)) {
+            positional.add(arguments.get("$" + index));
+            index++;
+        }
+
+        if (positional.size() != arguments.size()) {
+            throw new RuntimeError(callToken, "Invalid argument structure for method '" + methodName + "'.");
+        }
+
+        return positional;
+    }
+
+    private int resolveListIndex(Token token, int index, int size) {
+        int resolvedIndex = index < 0 ? size + index : index;
+        if (resolvedIndex < 0 || resolvedIndex >= size) {
+            throw new RuntimeError(token, "List index " + index + " is out of bounds for size " + size + ".");
+        }
+        return resolvedIndex;
+    }
+
+    private int resolveListInsertIndex(Token token, int index, int size) {
+        int resolvedIndex = index < 0 ? size + index : index;
+        if (resolvedIndex < 0 || resolvedIndex > size) {
+            throw new RuntimeError(token, "List index " + index + " is out of bounds for size " + size + ".");
+        }
+        return resolvedIndex;
+    }
+
+    private Integer evaluateOptionalIndex(Token token, Expression expression, boolean disallowNegative) {
+        if (expression == null) {
+            return null;
+        }
+
+        Object value = evaluate(expression);
+        if (!(value instanceof Integer integer)) {
+            throw new RuntimeError(token, "List index must be an integer.");
+        }
+
+        if (disallowNegative && integer < 0) {
+            throw new RuntimeError(token, "List range bounds must be non-negative.");
+        }
+
+        return integer;
+    }
+
+    private Object getListProperty(TVList list, Token name) {
+        String property = name.lexeme();
+        return switch (property) {
+            case "size" -> list.values().size();
+            case "add" -> new CollectionMethod("add", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    list.values().add(arguments.get(0));
+                    return null;
+                }
+            };
+            case "insert" -> new CollectionMethod("insert", 2) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    Object indexValue = arguments.get(0);
+                    if (!(indexValue instanceof Integer)) {
+                        throw new RuntimeError(callToken, "List index must be an integer.");
+                    }
+                    int index = resolveListInsertIndex(callToken, (int) indexValue, list.values().size());
+                    list.values().add(index, arguments.get(1));
+                    return null;
+                }
+            };
+            case "remove" -> new CollectionMethod("remove", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    Object indexValue = arguments.get(0);
+                    if (!(indexValue instanceof Integer)) {
+                        throw new RuntimeError(callToken, "List index must be an integer.");
+                    }
+                    int index = resolveListIndex(callToken, (int) indexValue, list.values().size());
+                    return list.values().remove(index);
+                }
+            };
+            case "pop" -> new CollectionMethod("pop", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    if (list.values().isEmpty()) {
+                        throw new RuntimeError(callToken, "Cannot pop from an empty list.");
+                    }
+                    return list.values().remove(list.values().size() - 1);
+                }
+            };
+            case "clear" -> new CollectionMethod("clear", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    list.values().clear();
+                    return null;
+                }
+            };
+            case "reverse" -> new CollectionMethod("reverse", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    Collections.reverse(list.values());
+                    return null;
+                }
+            };
+            case "contains" -> new CollectionMethod("contains", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    return list.values().contains(arguments.get(0));
+                }
+            };
+            default -> throw new RuntimeError(name, "Undefined list property '" + property + "'.");
+        };
+    }
+
+    private Object getSetProperty(TVSet set, Token name) {
+        String property = name.lexeme();
+        return switch (property) {
+            case "size" -> set.values().size();
+            case "add" -> new CollectionMethod("add", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    set.values().add(arguments.get(0));
+                    return null;
+                }
+            };
+            case "remove" -> new CollectionMethod("remove", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    set.values().remove(arguments.get(0));
+                    return null;
+                }
+            };
+            case "clear" -> new CollectionMethod("clear", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    set.values().clear();
+                    return null;
+                }
+            };
+            case "contains" -> new CollectionMethod("contains", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    return set.values().contains(arguments.get(0));
+                }
+            };
+            default -> throw new RuntimeError(name, "Undefined set property '" + property + "'.");
+        };
+    }
+
+    private Object getMapProperty(TVMap map, Token name) {
+        String property = name.lexeme();
+        return switch (property) {
+            case "size" -> map.values().size();
+            case "containsKey" -> new CollectionMethod("containsKey", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    return map.values().containsKey(arguments.get(0));
+                }
+            };
+            case "remove" -> new CollectionMethod("remove", 1) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    return map.values().remove(arguments.get(0));
+                }
+            };
+            case "keys" -> new CollectionMethod("keys", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    return new TVList(new ArrayList<>(map.values().keySet()));
+                }
+            };
+            case "values" -> new CollectionMethod("values", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    return new TVList(new ArrayList<>(map.values().values()));
+                }
+            };
+            case "clear" -> new CollectionMethod("clear", 0) {
+                @Override
+                protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    map.values().clear();
+                    return null;
+                }
+            };
+            default -> throw new RuntimeError(name, "Undefined map property '" + property + "'.");
+        };
     }
 
     private void checkNumberOperand(Token operator, Object operand) {

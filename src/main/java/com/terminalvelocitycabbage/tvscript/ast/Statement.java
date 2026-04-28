@@ -89,7 +89,7 @@ public interface Statement {
         }
     }
 
-    record ForStatement(Token keyword, Token type, Token name, Expression range, Statement body) implements Statement {
+    record ForStatement(Token keyword, Token type, Token name, Token valueType, Token valueName, Expression range, Statement body) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitForStatement(this);

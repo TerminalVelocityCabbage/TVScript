@@ -162,14 +162,26 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitForStatement(ForStatement stmt) {
-        TokenType rangeType = check(stmt.range());
-        if (rangeType != TokenType.TYPE_RANGE) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "For loop expects a range."));
+        TokenType iterableType = check(stmt.range());
+        if (iterableType != TokenType.TYPE_RANGE
+                && iterableType != TokenType.IDENTIFIER
+                && iterableType != TokenType.LIST
+                && iterableType != TokenType.SET
+                && iterableType != TokenType.MAP
+                && iterableType != null) {
+            TVScript.compileError(new CompileError(stmt.keyword(), "For loop expects a range or collection."));
+        }
+
+        if (stmt.valueName() != null && iterableType == TokenType.TYPE_RANGE) {
+            TVScript.compileError(new CompileError(stmt.keyword(), "Range iteration supports only a single loop variable."));
         }
 
         beginScope();
         if (stmt.name() != null) {
             declare(stmt.name(), stmt.type().type(), false);
+        }
+        if (stmt.valueName() != null) {
+            declare(stmt.valueName(), stmt.valueType().type(), false);
         }
 
         loopDepth++;

@@ -63,7 +63,7 @@ public class Parser {
                 return functionDeclaration("function");
             }
 
-            if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE)) {
+            if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP)) {
                 return varDeclaration(previous());
             }
 
@@ -132,8 +132,12 @@ public class Parser {
         boolean isConst = typeToken.type() == CONST;
         Token finalType = typeToken;
 
-        if (isConst && match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION)) {
+        if (isConst && match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, LIST, SET, MAP)) {
             finalType = previous();
+        }
+
+        if (finalType.type() == LIST || finalType.type() == SET || finalType.type() == MAP) {
+            parseCollectionTypeParameters(finalType);
         }
 
         Token name = consume(IDENTIFIER, "Expect variable name.");
@@ -193,11 +197,23 @@ public class Parser {
         Token keyword = previous();
         Token type = null;
         Token name = null;
+        Token valueType = null;
+        Token valueName = null;
 
         if (match(LEFT_BRACKET)) {
             if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, IDENTIFIER)) {
                 type = previous();
                 name = consume(IDENTIFIER, "Expect loop variable name.");
+
+                if (match(PIPE)) {
+                    if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, IDENTIFIER)) {
+                        valueType = previous();
+                        valueName = consume(IDENTIFIER, "Expect loop value variable name.");
+                    } else {
+                        throw error(peek(), "Expect type in loop value declaration.");
+                    }
+                }
+
                 consume(RIGHT_BRACKET, "Expect ']' after loop variable.");
                 consume(IN, "Expect 'in' after loop variable.");
             } else {
@@ -216,7 +232,7 @@ public class Parser {
             body = statement();
         }
 
-        return new ForStatement(keyword, type, name, range, body);
+        return new ForStatement(keyword, type, name, valueType, valueName, range, body);
     }
 
     private Statement breakStatement() {
@@ -386,7 +402,7 @@ public class Parser {
         List<FunctionStatement> constructors = new ArrayList<>();
 
         while (!check(DEDENT) && !isAtEnd()) {
-            if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, VAR, CONST)) {
+            if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP, VAR, CONST)) {
                 fields.add((VarStatement)varDeclaration(previous()));
             } else if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
                 advance();
@@ -525,7 +541,26 @@ public class Parser {
         if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER)) {
             return previous();
         }
+        if (match(LIST, SET, MAP)) {
+            Token type = previous();
+            parseCollectionTypeParameters(type);
+            return type;
+        }
         throw error(peek(), message);
+    }
+
+    private void parseCollectionTypeParameters(Token collectionType) {
+        consume(LEFT_BRACKET, "Expect '[' after collection type.");
+        if (collectionType.type() == LIST || collectionType.type() == SET) {
+            consumeType("Expect collection element type.");
+            consume(RIGHT_BRACKET, "Expect ']' after collection element type.");
+            return;
+        }
+
+        consumeType("Expect map key type.");
+        consume(PIPE, "Expect '|' between map key and value types.");
+        consumeType("Expect map value type.");
+        consume(RIGHT_BRACKET, "Expect ']' after map type declaration.");
     }
 
     private Expression expression() {
@@ -577,6 +612,9 @@ public class Parser {
             } else if (expr instanceof GetExpression) {
                 GetExpression get = (GetExpression)expr;
                 return new SetExpression(get.object(), get.name(), value);
+            } else if (expr instanceof IndexExpression) {
+                IndexExpression index = (IndexExpression) expr;
+                return new IndexSetExpression(index.object(), index.bracket(), index.index(), value);
             }
 
             TVScript.error(equals, "Invalid assignment target.");
@@ -669,7 +707,10 @@ public class Parser {
 
         if (match(DOT_DOT)) {
             Token operator = previous();
-            Expression right = term();
+            Expression right = null;
+            if (!check(RIGHT_BRACKET) && !check(RIGHT_PAREN) && !check(COMMA) && !check(COLON) && !check(NEWLINE) && !check(EOF)) {
+                right = term();
+            }
             expr = new RangeExpression(operator, expr, right);
         }
 
@@ -730,6 +771,8 @@ public class Parser {
                     Token name = consume(IDENTIFIER, "Expect property name after '.'.");
                     expr = new GetExpression(expr, name);
                 }
+            } else if (match(LEFT_BRACKET)) {
+                expr = finishIndex(expr, previous());
             } else {
                 break;
             }
@@ -749,15 +792,7 @@ public class Parser {
         }
 
         if (match(NEW)) {
-            Token keyword = previous();
-            Expression callee = call();
-
-            if (callee instanceof CallExpression) {
-                CallExpression call = (CallExpression)callee;
-                return new NewExpression(keyword, call.callee(), call.arguments());
-            } else {
-                throw error(keyword, "Expect constructor call after 'new'.");
-            }
+            return parseNewExpression(previous());
         }
 
         if (match(SUPER)) {
@@ -868,21 +903,128 @@ public class Parser {
     private Expression finishCall(Expression callee, boolean nativeCall) {
         List<CallExpression.Argument> arguments = new ArrayList<>();
         Set<String> argumentNames = new HashSet<>();
+        boolean hasNamedArguments = false;
+        boolean hasPositionalArguments = false;
         if (!check(RIGHT_PAREN)) {
             do {
-                Token name = consume(IDENTIFIER, "Expect argument name.");
-                if (!argumentNames.add(name.lexeme())) {
-                    TVScript.error(name, "Duplicate argument '" + name.lexeme() + "'.");
-                    throw new ParseError();
+                if (check(IDENTIFIER) && checkNext(COLON)) {
+                    if (hasPositionalArguments) {
+                        throw error(peek(), "Cannot use named arguments after positional arguments.");
+                    }
+
+                    Token name = consume(IDENTIFIER, "Expect argument name.");
+                    if (!argumentNames.add(name.lexeme())) {
+                        TVScript.error(name, "Duplicate argument '" + name.lexeme() + "'.");
+                        throw new ParseError();
+                    }
+                    consume(COLON, "Expect ':' after argument name.");
+                    Expression value = expression();
+                    arguments.add(new CallExpression.Argument(name, value));
+                    hasNamedArguments = true;
+                } else {
+                    if (!(callee instanceof GetExpression)) {
+                        throw error(peek(), "Expect argument name.");
+                    }
+
+                    if (hasNamedArguments) {
+                        throw error(peek(), "Cannot use positional arguments after named arguments.");
+                    }
+
+                    arguments.add(new CallExpression.Argument(null, expression()));
+                    hasPositionalArguments = true;
                 }
-                consume(COLON, "Expect ':' after argument name.");
-                Expression value = expression();
-                arguments.add(new CallExpression.Argument(name, value));
             } while (match(COMMA));
         }
 
         Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
         return new CallExpression(callee, paren, arguments, nativeCall);
+    }
+
+    private Expression finishIndex(Expression object, Token bracket) {
+        if (match(DOT_DOT)) {
+            Expression end = check(RIGHT_BRACKET) ? null : expression();
+            consume(RIGHT_BRACKET, "Expect ']' after list slice.");
+            return new SliceExpression(object, bracket, null, end);
+        }
+
+        Expression indexOrStart = expression();
+        if (indexOrStart instanceof RangeExpression range && range.operator().type() == DOT_DOT) {
+            consume(RIGHT_BRACKET, "Expect ']' after list slice.");
+            return new SliceExpression(object, bracket, range.start(), range.end());
+        }
+
+        if (match(DOT_DOT)) {
+            Expression end = check(RIGHT_BRACKET) ? null : expression();
+            consume(RIGHT_BRACKET, "Expect ']' after list slice.");
+            return new SliceExpression(object, bracket, indexOrStart, end);
+        }
+
+        consume(RIGHT_BRACKET, "Expect ']' after index.");
+        return new IndexExpression(object, bracket, indexOrStart);
+    }
+
+    private Expression parseNewExpression(Token keyword) {
+        if (match(LIST, SET, MAP)) {
+            Token collectionType = previous();
+            return parseCollectionLiteral(keyword, collectionType);
+        }
+
+        Expression callee = call();
+        if (callee instanceof CallExpression call) {
+            return new NewExpression(keyword, call.callee(), call.arguments());
+        }
+
+        throw error(keyword, "Expect constructor call after 'new'.");
+    }
+
+    private Expression parseCollectionLiteral(Token keyword, Token collectionType) {
+        if (collectionType.type() == MAP) {
+            consume(LEFT_BRACKET, "Expect '[' after 'map'.");
+            consume(PIPE, "Expect '|' in map constructor type slot.");
+            consume(RIGHT_BRACKET, "Expect ']' after map constructor type slot.");
+
+            List<MapEntry> entries = new ArrayList<>();
+            if (match(LEFT_PAREN)) {
+                if (!check(RIGHT_PAREN)) {
+                    do {
+                        Expression key = expression();
+                        consume(COLON, "Expect ':' between map key and value.");
+                        Expression value = expression();
+                        entries.add(new MapEntry(key, value));
+                    } while (match(COMMA));
+                }
+                consume(RIGHT_PAREN, "Expect ')' after map entries.");
+            }
+            return new CollectionLiteralExpression(keyword, collectionType, null, List.of(), entries);
+        }
+
+        consume(LEFT_BRACKET, "Expect '[' after collection type.");
+
+        Expression size = null;
+        if (collectionType.type() == SET) {
+            consume(RIGHT_BRACKET, "Sets must use empty constructor brackets: new set[].");
+        } else {
+            if (!check(RIGHT_BRACKET)) {
+                size = expression();
+            }
+            consume(RIGHT_BRACKET, "Expect ']' after list constructor.");
+        }
+
+        List<Expression> elements = new ArrayList<>();
+        if (match(LEFT_PAREN)) {
+            if (size != null) {
+                throw error(previous(), "Cannot provide both list size and initializer values.");
+            }
+
+            if (!check(RIGHT_PAREN)) {
+                do {
+                    elements.add(expression());
+                } while (match(COMMA));
+            }
+            consume(RIGHT_PAREN, "Expect ')' after collection elements.");
+        }
+
+        return new CollectionLiteralExpression(keyword, collectionType, size, elements, List.of());
     }
 
     private Expression anonymousFunctionExpression() {
