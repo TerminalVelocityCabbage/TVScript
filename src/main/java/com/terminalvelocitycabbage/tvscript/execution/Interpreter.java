@@ -24,6 +24,8 @@ import com.terminalvelocitycabbage.tvscript.ast.Expression.Argument;
  */
 public class Interpreter implements Expression.Visitor<Object>, Statement.Visitor<Void> {
 
+    private static final Object NO_OPERATOR_OVERLOAD = new Object();
+
     private static class BreakException extends RuntimeException {
         BreakException() { super(null, null, false, false); }
     }
@@ -172,6 +174,11 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         Object left = evaluate(expr.left());
         Object right = evaluate(expr.right());
 
+        Object overloadedResult = tryEvaluateOverloadedBinary(expr.operator(), left, right);
+        if (overloadedResult != NO_OPERATOR_OVERLOAD) {
+            return overloadedResult;
+        }
+
         switch (expr.operator().type()) {
             case GREATER:
                 checkNumberOperands(expr.operator(), left, right);
@@ -265,6 +272,11 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Object visitUnaryExpression(UnaryExpression expr) {
         Object right = evaluate(expr.right());
 
+        Object overloadedResult = tryEvaluateOverloadedUnary(expr.operator(), right);
+        if (overloadedResult != NO_OPERATOR_OVERLOAD) {
+            return overloadedResult;
+        }
+
         switch (expr.operator().type()) {
             case BANG:
                 return !isTruthy(expr.operator(), right);
@@ -275,6 +287,115 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             default:
                 return null;
         }
+    }
+
+    private Object tryEvaluateOverloadedBinary(Token operator, Object left, Object right) {
+        if (!isTypeInstance(left) && !isTypeInstance(right)) {
+            return NO_OPERATOR_OVERLOAD;
+        }
+
+        String operatorName = switch (operator.type()) {
+            case PLUS -> "add";
+            case MINUS -> "subtract";
+            case STAR -> "multiply";
+            case SLASH -> "divide";
+            case PERCENT -> "modulo";
+            case GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, EQUAL_EQUAL, BANG_EQUAL -> "compare";
+            default -> null;
+        };
+
+        if (operatorName == null) {
+            return NO_OPERATOR_OVERLOAD;
+        }
+
+        TVScriptFunction function = findOperatorFunction(operator, left, right, operatorName);
+        if (function == null) {
+            if (operatorName.equals("compare")) {
+                throw missingOperatorError(operator, "comparison", left, right);
+            }
+            throw missingOperatorError(operator, operatorName, left, right);
+        }
+
+        Object result = function.call(this, buildOperatorArguments(function, left, right), operator);
+        if (operatorName.equals("compare")) {
+            if (!(result instanceof Number compareValue)) {
+                throw new RuntimeError(operator, "Operator compare must return decimal.");
+            }
+            return evaluateComparisonResult(operator, compareValue.doubleValue());
+        }
+        return result;
+    }
+
+    private Object tryEvaluateOverloadedUnary(Token operator, Object right) {
+        if (!isTypeInstance(right) || operator.type() != TokenType.MINUS) {
+            return NO_OPERATOR_OVERLOAD;
+        }
+
+        TVScriptClass owner = ((TVScriptInstance) right).getType();
+        TVScriptFunction function = owner.findOperator("negative", null, right);
+        if (function == null) {
+            throw missingOperatorError(operator, "negative", null, right);
+        }
+        return function.call(this, buildOperatorArguments(function, null, right), operator);
+    }
+
+    private TVScriptFunction findOperatorFunction(Token operator, Object left, Object right, String operatorName) {
+        if (left instanceof TVScriptInstance leftInstance && leftInstance.getType().isType) {
+            TVScriptFunction function = leftInstance.getType().findOperator(operatorName, left, right);
+            if (function != null) {
+                return function;
+            }
+        }
+        if (right instanceof TVScriptInstance rightInstance && rightInstance.getType().isType) {
+            return rightInstance.getType().findOperator(operatorName, left, right);
+        }
+        return null;
+    }
+
+    private Map<String, Object> buildOperatorArguments(TVScriptFunction function, Object left, Object right) {
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        List<Statement.FunctionStatement.Parameter> parameters = function.parameters();
+        if (parameters.size() == 1) {
+            arguments.put(parameters.get(0).name().lexeme(), right);
+        } else {
+            arguments.put(parameters.get(0).name().lexeme(), left);
+            arguments.put(parameters.get(1).name().lexeme(), right);
+        }
+        return arguments;
+    }
+
+    private RuntimeError missingOperatorError(Token operator, String operatorName, Object left, Object right) {
+        return new RuntimeError(operator,
+                "no operator overload defined for \"" + operatorName + "\" between " +
+                        runtimeTypeName(left) + " and " + runtimeTypeName(right));
+    }
+
+    private String runtimeTypeName(Object value) {
+        if (value instanceof TVScriptInstance instance) {
+            return instance.getType().name;
+        }
+        if (value instanceof Integer) return "integer";
+        if (value instanceof Double) return "decimal";
+        if (value instanceof Boolean) return "boolean";
+        if (value instanceof String) return "string";
+        if (value == null) return "none";
+        return value.getClass().getSimpleName().toLowerCase();
+    }
+
+    private boolean isTypeInstance(Object value) {
+        return value instanceof TVScriptInstance instance && instance.getType().isType;
+    }
+
+    private boolean evaluateComparisonResult(Token operator, double compareValue) {
+        return switch (operator.type()) {
+            case EQUAL_EQUAL -> compareValue == 0;
+            case BANG_EQUAL -> compareValue != 0;
+            case LESS -> compareValue < 0;
+            case LESS_EQUAL -> compareValue <= 0;
+            case GREATER -> compareValue > 0;
+            case GREATER_EQUAL -> compareValue >= 0;
+            default -> throw new RuntimeError(operator, "Unsupported comparison operator.");
+        };
     }
 
     @Override
@@ -925,8 +1046,56 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             constructors.add(new TVScriptFunction(constructorStmt, environment));
         }
 
-        TVScriptClass klass = new TVScriptClass(stmt.name().lexeme(), superclass, traits, stmt.fields(), methods, staticMethods, constructors);
+        TVScriptClass klass = new TVScriptClass(
+                stmt.name().lexeme(),
+                superclass,
+                traits,
+                stmt.fields(),
+                methods,
+                staticMethods,
+                constructors,
+                new HashMap<>(),
+                false
+        );
         environment.define(stmt.name(), klass, TokenType.CLASS, true);
+        return null;
+    }
+
+    @Override
+    public Void visitTypeStatement(TypeStatement stmt) {
+        List<TVScriptTrait> traits = new ArrayList<>();
+        for (Token traitToken : stmt.traits()) {
+            Object obj = environment.get(traitToken);
+            if (!(obj instanceof TVScriptTrait)) {
+                throw new RuntimeError(traitToken, "Only traits can be implemented.");
+            }
+            traits.add((TVScriptTrait) obj);
+        }
+
+        Map<String, TVScriptFunction> methods = new HashMap<>();
+        for (FunctionStatement method : stmt.methods()) {
+            TVScriptFunction function = new TVScriptFunction(method, environment);
+            methods.put(method.name().lexeme(), function);
+        }
+
+        Map<String, List<TVScriptFunction>> operators = new HashMap<>();
+        for (FunctionStatement operator : stmt.operators()) {
+            TVScriptFunction function = new TVScriptFunction(operator, environment);
+            operators.computeIfAbsent(operator.name().lexeme(), k -> new ArrayList<>()).add(function);
+        }
+
+        TVScriptClass type = new TVScriptClass(
+                stmt.name().lexeme(),
+                null,
+                traits,
+                stmt.fields(),
+                methods,
+                new HashMap<>(),
+                new ArrayList<>(),
+                operators,
+                true
+        );
+        environment.define(stmt.name(), type, TokenType.CLASS, true);
         return null;
     }
 

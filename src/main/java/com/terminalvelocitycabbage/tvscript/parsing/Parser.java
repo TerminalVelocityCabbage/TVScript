@@ -19,6 +19,9 @@ import static com.terminalvelocitycabbage.tvscript.parsing.TokenType.*;
 public class Parser {
 
     private static class ParseError extends RuntimeException {}
+    private static final Set<String> SUPPORTED_OPERATOR_NAMES = Set.of(
+            "add", "subtract", "multiply", "divide", "modulo", "compare", "negative"
+    );
 
     private final List<Token> tokens;
     private int current = 0;
@@ -58,6 +61,7 @@ public class Parser {
             if (match(IMPORT)) return importDeclaration();
             if (match(CLASS)) return classDeclaration();
             if (match(TRAIT)) return traitDeclaration();
+            if (match(TYPE)) return typeDeclaration();
             if (match(MAIN)) return mainDeclaration();
             if (match(FUNCTION)) {
                 return functionDeclaration("function");
@@ -471,6 +475,119 @@ public class Parser {
         consume(DEDENT, "Expect dedent after trait body.");
 
         return new TraitStatement(name, traits, fields, methods);
+    }
+
+    private Statement typeDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect type name.");
+
+        List<Token> traits = new ArrayList<>();
+        if (match(LESS)) {
+            consume(LEFT_BRACKET, "Expect '[' after '<' in type trait list.");
+            do {
+                traits.add(consume(IDENTIFIER, "Expect trait name."));
+            } while (match(COMMA));
+            consume(RIGHT_BRACKET, "Expect ']' after type trait list.");
+        }
+
+        consume(COLON, "Expect ':' before type body.");
+        consume(NEWLINE, "Expect newline before type body.");
+        consume(INDENT, "Expect indentation before type body.");
+
+        List<VarStatement> fields = new ArrayList<>();
+        List<FunctionStatement> methods = new ArrayList<>();
+        List<FunctionStatement> operators = new ArrayList<>();
+
+        while (!check(DEDENT) && !isAtEnd()) {
+            if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP, VAR, CONST)) {
+                VarStatement field = (VarStatement) varDeclaration(previous());
+                if (!field.isConst()) {
+                    field = new VarStatement(field.type(), field.name(), field.initializer(), true);
+                }
+                fields.add(field);
+            } else if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
+                advance();
+                VarStatement field = (VarStatement) varDeclaration(previous());
+                if (!field.isConst()) {
+                    field = new VarStatement(field.type(), field.name(), field.initializer(), true);
+                }
+                fields.add(field);
+            } else if (match(DEFAULT, OVERRIDE) || (check(IDENTIFIER) && checkNext(LEFT_PAREN))) {
+                methods.add(methodDeclaration());
+            } else if (match(OPERATOR)) {
+                operators.add(operatorDeclaration(name));
+            } else if (match(PASS)) {
+                // Allow pass in type body
+            } else if (match(NEWLINE)) {
+                // Ignore empty lines
+            } else {
+                throw error(peek(), "Expect field, method or operator declaration in type body.");
+            }
+
+            while (match(NEWLINE));
+        }
+
+        consume(DEDENT, "Expect dedent after type body.");
+        return new TypeStatement(name, traits, fields, methods, operators);
+    }
+
+    private FunctionStatement operatorDeclaration(Token ownerType) {
+        Token operatorName = consume(IDENTIFIER, "Expect operator name.");
+        if (!SUPPORTED_OPERATOR_NAMES.contains(operatorName.lexeme())) {
+            throw error(operatorName, "Unsupported operator overload '" + operatorName.lexeme() + "'.");
+        }
+
+        consume(LEFT_PAREN, "Expect '(' after operator name.");
+        List<FunctionStatement.Parameter> parameters = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                parameters.add(operatorParameter(ownerType));
+            } while (match(COMMA));
+        }
+        consume(RIGHT_PAREN, "Expect ')' after operator parameters.");
+
+        int expectedArity = operatorName.lexeme().equals("negative") ? 1 : 2;
+        if (parameters.size() != expectedArity) {
+            throw error(operatorName, "Operator '" + operatorName.lexeme() + "' expects " + expectedArity + " parameter(s).");
+        }
+
+        Token returnType = null;
+        if (match(ARROW)) {
+            returnType = consumeType("Expect return type.");
+        }
+        if (returnType == null) {
+            if (operatorName.lexeme().equals("compare")) {
+                returnType = new Token(TYPE_DECIMAL, "decimal", null, operatorName.line());
+            } else {
+                returnType = ownerType;
+            }
+        }
+
+        consume(COLON, "Expect ':' before operator body.");
+        Statement body;
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in operator declaration.");
+            body = new BlockStatement(block());
+        } else {
+            body = statement();
+            if (!(body instanceof BlockStatement)) {
+                List<Statement> stmts = new ArrayList<>();
+                stmts.add(body);
+                body = new BlockStatement(stmts);
+            }
+        }
+
+        return new FunctionStatement(operatorName, parameters, returnType, body, false, false);
+    }
+
+    private FunctionStatement.Parameter operatorParameter(Token ownerType) {
+        if (check(IDENTIFIER) && (checkNext(COMMA) || checkNext(RIGHT_PAREN))) {
+            Token inferredName = advance();
+            return new FunctionStatement.Parameter(ownerType, inferredName, null);
+        }
+
+        Token type = consumeType("Expect operator parameter type.");
+        Token name = consume(IDENTIFIER, "Expect operator parameter name.");
+        return new FunctionStatement.Parameter(type, name, null);
     }
 
     private FunctionStatement methodDeclaration() {

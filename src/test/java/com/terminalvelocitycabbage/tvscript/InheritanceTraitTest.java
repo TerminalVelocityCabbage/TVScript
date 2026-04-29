@@ -145,6 +145,52 @@ public class InheritanceTraitTest {
     }
 
     @Test
+    public void testTypeImplementsTrait() {
+        String source = """
+            trait PositionLike:
+                default printSomething(): print "PositionLike"
+                printSomethingElse()
+
+            type vector2d < [PositionLike]:
+                decimal x
+                decimal y
+                
+                override printSomethingElse(): print "vector2d"
+
+            main:
+                vector2d point = new vector2d(x: 3.0, y: 4.0)
+                print point has PositionLike
+                print point is PositionLike
+                point.printSomething()
+                point.printSomethingElse()
+            """;
+        String output = run(source);
+        assertEquals("true\ntrue\nPositionLike\nvector2d", output);
+    }
+
+    @Test
+    public void testTypeImplementsTraitWithSupertrait() {
+        String source = """
+            trait CoordinateLike:
+                pass
+
+            trait PositionLike < [CoordinateLike]:
+                pass
+
+            type vector2d < [PositionLike]:
+                decimal x
+                decimal y
+
+            main:
+                vector2d point = new vector2d(x: 3.0, y: 4.0)
+                print point has PositionLike
+                print point has CoordinateLike
+            """;
+        String output = run(source);
+        assertEquals("true\ntrue", output);
+    }
+
+    @Test
     public void testIsHasAs() {
         String source = """
             trait T:

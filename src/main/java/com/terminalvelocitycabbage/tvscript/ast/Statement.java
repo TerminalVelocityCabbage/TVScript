@@ -30,6 +30,7 @@ public interface Statement {
         default R visitReturnStatement(ReturnStatement stmt) { return null; }
         default R visitClassStatement(ClassStatement stmt) { return null; }
         default R visitTraitStatement(TraitStatement stmt) { return null; }
+        default R visitTypeStatement(TypeStatement stmt) { return null; }
     }
 
     /**
@@ -155,6 +156,13 @@ public interface Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitTraitStatement(this);
+        }
+    }
+
+    record TypeStatement(Token name, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> operators) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitTypeStatement(this);
         }
     }
 }

@@ -29,7 +29,14 @@ public class TVScriptInstance {
         throw new RuntimeError(name, "Undefined property '" + name.lexeme() + "'.");
     }
 
+    public void defineField(Token name, Object value) {
+        fields.put(name.lexeme(), value);
+    }
+
     public void set(Token name, Object value) {
+        if (klass.isType && fields.containsKey(name.lexeme())) {
+            throw new RuntimeError(name, "Type fields are immutable.");
+        }
         fields.put(name.lexeme(), value);
     }
 

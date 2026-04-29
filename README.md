@@ -27,7 +27,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] Functions & First-class functions
 - [x] Classes & Objects
 - [x] Inheritance & Traits
-- [ ] Types & Operator Overloading
+- [x] Types & Operator Overloading
 
 ### Advanced Features
 - [x] Built-in Collections (`list`, `set`, `map`)
@@ -857,7 +857,19 @@ vector2d v = new vector2d(x: 10, y: 10)
 ```
 You initialize a type using the `new` keyword, just like a class. Note that type fields are all constants and cannot be modified. That's where operator overloading comes in.
 ### Operator Overloading
-Operator overloading allows you to define custom behavior for operators like `+`, `-`, `*`, `/`, and more. This is done by defining methods with special names that correspond to the operator. For example, to overload the `+` operator, you would define a method named `add` that takes in some arguments and returns a value like you'd expect. To define an operator overload you need to prefix a normal method name by the ``operator`` keyword. All operator overload methods have a `left` and a `right` parameter of the same type as the type and returns the same type as well.
+Operator overloading allows you to define custom behavior for operators like `+`, `-`, `*`, `/`, `%`, and comparisons. This is done by defining methods with special names that correspond to operators. To define an operator overload you prefix the method name with the `operator` keyword.
+
+Supported operator method names:
+- `add` (`+`)
+- `subtract` (`-`)
+- `multiply` (`*`)
+- `divide` (`/`)
+- `modulo` (`%`)
+- `negative` (unary `-value`)
+- `compare` (used for `==`, `!=`, `<`, `>`, `<=`, `>=`)
+
+If you explicitly declare parameters, their names must be `left` and `right` for binary operators, and `right` for `negative`. Parameter and return types can be inferred when omitted. Operator arguments and return type are not required to match the enclosing type, so mixed-type overloads (for example `vector2d * decimal`) are valid.
+`compare` must return a `decimal`, where `0.0` means equal, a value less than `0.0` means left is less than right, and a value greater than `0.0` means left is greater than right.
 ```
 type vector2d:
     decimal x
@@ -869,14 +881,28 @@ type vector2d:
     //You don't need to specify the parameter types or the return type for operator methods, it's inferred by the compiler
     operator subtract(left, right):
         return new vector2d(x: left.x - right.x, y: left.y - right.y)
+
+    operator multiply(vector2d left, decimal right) -> vector2d:
+        return new vector2d(x: left.x * right, y: left.y * right)
+
+type score:
+    decimal value
+
+    operator compare(score left, score right) -> decimal:
+        return left.value - right.value
 ```
 Now you can do things like:
 ```
 vector2d v1 = new vector2d(x: 10, y: 10)
 vector2d v2 = new vector2d(x: 5, y: 5)
 vector2d sum = v1 + v2 //results in new vector2d(x: 15, y: 15)
+vector2d scaled = v1 * 2.5
+
+score a = new score(value: 1.0)
+score b = new score(value: 2.0)
+print a < b // true (via operator compare)
 //However in our above definition you can't do:
-vector2d div = v1 / v2 //error, unefined operation (no operator method defined for "/" on type "vector2d")
+vector2d div = v1 / v2 //runtime error: no operator overload defined for "divide" between vector2d and vector2d
 ```
 
 ## Inheritance

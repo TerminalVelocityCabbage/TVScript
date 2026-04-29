@@ -26,6 +26,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final List<Map<String, VariableStaticInfo>> scopes = new ArrayList<>();
     private final Map<String, ClassStatement> classes = new HashMap<>();
     private final Map<String, TraitStatement> traits = new HashMap<>();
+    private final Map<String, TypeStatement> types = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private int loopDepth = 0;
 
@@ -33,15 +34,21 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         final TokenType type;
         final boolean isConst;
         final TokenType returnType;
+        final String namedType;
 
         VariableStaticInfo(TokenType type, boolean isConst) {
-            this(type, isConst, null);
+            this(type, isConst, null, null);
         }
 
         VariableStaticInfo(TokenType type, boolean isConst, TokenType returnType) {
+            this(type, isConst, returnType, null);
+        }
+
+        VariableStaticInfo(TokenType type, boolean isConst, TokenType returnType, String namedType) {
             this.type = type;
             this.isConst = isConst;
             this.returnType = returnType;
+            this.namedType = namedType;
         }
     }
 
@@ -69,6 +76,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 classes.put(((ClassStatement) statement).name().lexeme(), (ClassStatement) statement);
             } else if (statement instanceof TraitStatement) {
                 traits.put(((TraitStatement) statement).name().lexeme(), (TraitStatement) statement);
+            } else if (statement instanceof TypeStatement) {
+                types.put(((TypeStatement) statement).name().lexeme(), (TypeStatement) statement);
             }
         }
 
@@ -243,7 +252,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
         beginScope();
         for (FunctionStatement.Parameter param : stmt.parameters()) {
-            declare(param.name(), param.type().type(), false);
+            declare(param.name(), param.type().type(), param.type().type() == TokenType.IDENTIFIER ? param.type().lexeme() : null, false);
         }
         if (stmt.body() != null) {
             check(stmt.body());
@@ -261,6 +270,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private ClassStatement currentClass = null;
+    private TypeStatement currentType = null;
 
     @Override
     public Void visitClassStatement(ClassStatement stmt) {
@@ -338,6 +348,92 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return null;
     }
 
+    @Override
+    public Void visitTypeStatement(TypeStatement stmt) {
+        TypeStatement previousType = currentType;
+        currentType = stmt;
+
+        declare(stmt.name(), TokenType.CLASS, stmt.name().lexeme(), true);
+
+        for (Token traitToken : stmt.traits()) {
+            if (!traits.containsKey(traitToken.lexeme())) {
+                TVScript.compileError(new CompileError(traitToken, "Only traits can be implemented."));
+            }
+        }
+
+        checkTypeTraitImplementations(stmt);
+
+        beginScope();
+        declare(new Token(TokenType.THIS, "this", null, 0), TokenType.IDENTIFIER, stmt.name().lexeme(), true);
+
+        for (VarStatement field : stmt.fields()) {
+            if (!field.isConst()) {
+                TVScript.compileError(new CompileError(field.name(), "Type fields are immutable and must be declared as constants."));
+            }
+            if (field.initializer() != null) {
+                check(field.initializer());
+            }
+            declare(field.name(), field.type().type(), field.type().type() == TokenType.IDENTIFIER ? field.type().lexeme() : null, true);
+        }
+
+        for (FunctionStatement method : stmt.methods()) {
+            check(method);
+        }
+
+        for (FunctionStatement operator : stmt.operators()) {
+            validateTypeOperator(stmt, operator);
+            beginScope();
+            for (FunctionStatement.Parameter parameter : operator.parameters()) {
+                declare(parameter.name(), parameter.type().type(), parameter.type().type() == TokenType.IDENTIFIER ? parameter.type().lexeme() : null, false);
+            }
+            if (operator.body() != null) {
+                check(operator.body());
+            }
+            endScope();
+        }
+
+        endScope();
+        currentType = previousType;
+        return null;
+    }
+
+    private void validateTypeOperator(TypeStatement typeStatement, FunctionStatement operator) {
+        String operatorName = operator.name().lexeme();
+        List<FunctionStatement.Parameter> parameters = operator.parameters();
+
+        if ("negative".equals(operatorName)) {
+            if (parameters.size() != 1 || !"right".equals(parameters.get(0).name().lexeme())) {
+                TVScript.compileError(new CompileError(operator.name(), "Operator parameter must be named right."));
+            }
+        } else {
+            if (parameters.size() != 2 || !"left".equals(parameters.get(0).name().lexeme()) || !"right".equals(parameters.get(1).name().lexeme())) {
+                TVScript.compileError(new CompileError(operator.name(), "Operator parameters must be named left and right."));
+            }
+        }
+
+        if ("compare".equals(operatorName)) {
+            if (operator.returnType() == null || operator.returnType().type() != TokenType.TYPE_DECIMAL) {
+                TVScript.compileError(new CompileError(operator.name(), "Operator compare must return decimal."));
+            }
+        }
+
+        for (FunctionStatement.Parameter parameter : parameters) {
+            if (parameter.type().type() == TokenType.IDENTIFIER) {
+                String typeName = parameter.type().lexeme();
+                if (!classes.containsKey(typeName) && !types.containsKey(typeName)) {
+                    TVScript.compileError(new CompileError(parameter.type(), "Unknown type '" + typeName + "' in operator declaration."));
+                }
+            }
+        }
+
+        if (operator.returnType() != null && operator.returnType().type() == TokenType.IDENTIFIER) {
+            String returnTypeName = operator.returnType().lexeme();
+            if (!classes.containsKey(returnTypeName) && !types.containsKey(returnTypeName)) {
+                TVScript.compileError(new CompileError(operator.returnType(), "Unknown return type '" + returnTypeName + "' in operator declaration."));
+            }
+        }
+    }
+
     private boolean isExhaustive(TokenType type, List<?> cases) {
         // TODO: Implement actual exhaustiveness checking
         return false; 
@@ -353,12 +449,19 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public Void visitVarStatement(VarStatement stmt) {
         TokenType declaredType = stmt.type().type();
         TokenType inferredType = declaredType;
+        String declaredNamedType = declaredType == TokenType.IDENTIFIER ? stmt.type().lexeme() : null;
+        String inferredNamedType = declaredNamedType;
 
         if (stmt.initializer() != null) {
             inferredType = check(stmt.initializer());
+            inferredNamedType = inferNamedType(stmt.initializer());
             if (declaredType == TokenType.VAR || declaredType == TokenType.CONST) {
                 if (inferredType == null) {
                     TVScript.compileError(new CompileError(stmt.name(), "Cannot infer type from none."));
+                }
+            } else if (declaredType == TokenType.IDENTIFIER) {
+                if (inferredNamedType != null && declaredNamedType != null && !isAssignableNamedType(declaredNamedType, inferredNamedType)) {
+                    TVScript.compileError(new CompileError(stmt.name(), "Incompatible types in initialization."));
                 }
             } else if (inferredType != null && !isCompatible(declaredType, inferredType)) {
                 TVScript.compileError(new CompileError(stmt.name(), "Incompatible types in initialization."));
@@ -369,7 +472,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             TVScript.compileError(new CompileError(stmt.name(), "Type inference requires an initializer."));
         }
 
-        declare(stmt.name(), (declaredType == TokenType.VAR || declaredType == TokenType.CONST) ? inferredType : declaredType, stmt.isConst());
+        TokenType finalType = (declaredType == TokenType.VAR || declaredType == TokenType.CONST) ? inferredType : declaredType;
+        String finalNamedType = (declaredType == TokenType.VAR || declaredType == TokenType.CONST) ? inferredNamedType : declaredNamedType;
+        declare(stmt.name(), finalType, finalNamedType, stmt.isConst());
         return null;
     }
 
@@ -595,7 +700,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public TokenType visitFunctionExpression(FunctionExpression expr) {
         beginScope();
         for (FunctionStatement.Parameter param : expr.parameters()) {
-            declare(param.name(), param.type().type(), false);
+            declare(param.name(), param.type().type(), param.type().type() == TokenType.IDENTIFIER ? param.type().lexeme() : null, false);
         }
         check(expr.body());
         endScope();
@@ -614,19 +719,39 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (currentClass != null && hasMethod(currentClass, expr.name().lexeme())) {
                 return TokenType.FUNCTION;
             }
+            if (currentType != null && hasTypeMethod(currentType, expr.name().lexeme())) {
+                return TokenType.FUNCTION;
+            }
             
             TVScript.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on 'this'."));
             return null;
         }
 
         if (expr.object() instanceof VariableExpression varExpr) {
-            String name = varExpr.name().lexeme();
-            if (traits.containsKey(name)) {
-                TraitStatement trait = traits.get(name);
+            String variableName = varExpr.name().lexeme();
+            if (traits.containsKey(variableName)) {
+                TraitStatement trait = traits.get(variableName);
                 TokenType fieldType = findFieldInTrait(trait, expr.name().lexeme());
                 if (fieldType != null) return fieldType;
                 
                 TVScript.compileError(new CompileError(expr.name(), "Undefined trait constant '" + expr.name().lexeme() + "'."));
+            }
+
+            VariableStaticInfo info = lookup(varExpr.name());
+            if (info != null && info.namedType != null) {
+                TypeStatement typeStatement = types.get(info.namedType);
+                if (typeStatement != null) {
+                    for (VarStatement field : typeStatement.fields()) {
+                        if (field.name().lexeme().equals(expr.name().lexeme())) {
+                            return field.type().type();
+                        }
+                    }
+                    if (hasTypeMethod(typeStatement, expr.name().lexeme())) {
+                        return TokenType.FUNCTION;
+                    }
+                    TVScript.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on type '" + info.namedType + "'."));
+                    return null;
+                }
             }
         }
 
@@ -644,6 +769,25 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         for (Token traitToken : stmt.traits()) {
             TraitStatement trait = traits.get(traitToken.lexeme());
             if (trait != null && hasTraitMethod(trait, name)) return true;
+        }
+        return false;
+    }
+
+    private boolean hasTypeMethod(TypeStatement stmt, String name) {
+        for (FunctionStatement method : stmt.methods()) {
+            if (method.name().lexeme().equals(name)) {
+                return true;
+            }
+        }
+        return hasTypeTraitMethod(stmt, name);
+    }
+
+    private boolean hasTypeTraitMethod(TypeStatement stmt, String name) {
+        for (Token traitToken : stmt.traits()) {
+            TraitStatement trait = traits.get(traitToken.lexeme());
+            if (trait != null && hasTraitMethod(trait, name)) {
+                return true;
+            }
         }
         return false;
     }
@@ -678,6 +822,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     @Override
     public TokenType visitSetExpression(SetExpression expr) {
         check(expr.object());
+        if (expr.object() instanceof VariableExpression varExpr) {
+            VariableStaticInfo info = lookup(varExpr.name());
+            if (info != null && info.namedType != null && types.containsKey(info.namedType)) {
+                TVScript.compileError(new CompileError(expr.name(), "Type fields are immutable."));
+            }
+        }
         return check(expr.value());
     }
 
@@ -700,6 +850,29 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.CLASS;
     }
 
+    private String inferNamedType(Expression initializer) {
+        if (initializer instanceof NewExpression newExpression && newExpression.callee() instanceof VariableExpression variableExpression) {
+            return variableExpression.name().lexeme();
+        }
+        return null;
+    }
+
+    private boolean isAssignableNamedType(String expected, String actual) {
+        if (expected.equals(actual)) {
+            return true;
+        }
+
+        ClassStatement actualClass = classes.get(actual);
+        while (actualClass != null && actualClass.superclass() != null) {
+            if (actualClass.superclass().lexeme().equals(expected)) {
+                return true;
+            }
+            actualClass = classes.get(actualClass.superclass().lexeme());
+        }
+
+        return false;
+    }
+
     @Override
     public TokenType visitSuperExpression(SuperExpression expr) {
         return TokenType.CLASS; // Simple for now
@@ -717,6 +890,44 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private record AbstractMethodInfo(Token name, String traitName) {}
+
+    private void checkTypeTraitImplementations(TypeStatement stmt) {
+        Map<String, Token> availableMethods = new HashMap<>();
+        Map<String, List<String>> traitProviders = new HashMap<>();
+
+        for (Token traitToken : stmt.traits()) {
+            TraitStatement trait = traits.get(traitToken.lexeme());
+            if (trait != null) {
+                collectTraitMethods(trait, availableMethods, traitProviders);
+            }
+        }
+
+        Set<String> typeMethods = new HashSet<>();
+        for (FunctionStatement method : stmt.methods()) {
+            typeMethods.add(method.name().lexeme());
+        }
+
+        for (Map.Entry<String, List<String>> entry : traitProviders.entrySet()) {
+            String methodName = entry.getKey();
+            List<String> providers = entry.getValue();
+
+            if (providers.size() > 1 && !typeMethods.contains(methodName)) {
+                TVScript.compileError(new CompileError(stmt.name(),
+                        "Type '" + stmt.name().lexeme() + "' must override method '" + methodName +
+                                "' because it is provided by multiple traits: " + providers));
+            }
+        }
+
+        Map<String, AbstractMethodInfo> abstractMethods = new HashMap<>();
+        collectAbstractTraitMethods(stmt, abstractMethods);
+        for (Map.Entry<String, AbstractMethodInfo> entry : abstractMethods.entrySet()) {
+            if (!typeMethods.contains(entry.getKey())) {
+                AbstractMethodInfo info = entry.getValue();
+                TVScript.compileError(new CompileError(stmt.name(),
+                        "Type '" + stmt.name().lexeme() + "' must implement method '" + entry.getKey() + "' from trait " + info.traitName() + "."));
+            }
+        }
+    }
 
     private void checkTraitImplementations(ClassStatement stmt) {
         Map<String, Token> availableMethods = new HashMap<>();
@@ -773,6 +984,15 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
     }
 
+    private void collectAbstractTraitMethods(TypeStatement stmt, Map<String, AbstractMethodInfo> abstractMethods) {
+        for (Token traitToken : stmt.traits()) {
+            TraitStatement trait = traits.get(traitToken.lexeme());
+            if (trait != null) {
+                collectAbstractMethodsFromTrait(trait, abstractMethods);
+            }
+        }
+    }
+
     private void collectAbstractMethodsFromTrait(TraitStatement trait, Map<String, AbstractMethodInfo> abstractMethods) {
         for (FunctionStatement method : trait.methods()) {
             if (method.body() == null && !method.isDefault()) {
@@ -814,10 +1034,18 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private void declare(Token name, TokenType type, boolean isConst) {
-        declare(name, type, isConst, null);
+        declare(name, type, null, isConst, null);
     }
 
     private void declare(Token name, TokenType type, boolean isConst, TokenType returnType) {
+        declare(name, type, null, isConst, returnType);
+    }
+
+    private void declare(Token name, TokenType type, String namedType, boolean isConst) {
+        declare(name, type, namedType, isConst, null);
+    }
+
+    private void declare(Token name, TokenType type, String namedType, boolean isConst, TokenType returnType) {
         if (scopes.isEmpty()) return;
         
         // Redefinition in the same scope is always an error
@@ -827,7 +1055,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             return;
         }
 
-        scope.put(name.lexeme(), new VariableStaticInfo(type, isConst, returnType));
+        scope.put(name.lexeme(), new VariableStaticInfo(type, isConst, returnType, namedType));
     }
 
     private boolean isAlreadyDefined(String name) {

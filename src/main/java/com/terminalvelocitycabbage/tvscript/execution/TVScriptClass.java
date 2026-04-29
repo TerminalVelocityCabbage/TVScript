@@ -7,6 +7,7 @@ import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.ArrayList;
 
 public class TVScriptClass {
     final String name;
@@ -16,8 +17,18 @@ public class TVScriptClass {
     final Map<String, TVScriptFunction> methods;
     final Map<String, TVScriptFunction> staticMethods;
     final List<TVScriptFunction> constructors;
+    final Map<String, List<TVScriptFunction>> operators;
+    final boolean isType;
 
-    public TVScriptClass(String name, TVScriptClass superclass, List<TVScriptTrait> traits, List<Statement.VarStatement> fields, Map<String, TVScriptFunction> methods, Map<String, TVScriptFunction> staticMethods, List<TVScriptFunction> constructors) {
+    public TVScriptClass(String name,
+                         TVScriptClass superclass,
+                         List<TVScriptTrait> traits,
+                         List<Statement.VarStatement> fields,
+                         Map<String, TVScriptFunction> methods,
+                         Map<String, TVScriptFunction> staticMethods,
+                         List<TVScriptFunction> constructors,
+                         Map<String, List<TVScriptFunction>> operators,
+                         boolean isType) {
         this.name = name;
         this.superclass = superclass;
         this.traits = traits;
@@ -25,6 +36,8 @@ public class TVScriptClass {
         this.methods = methods;
         this.staticMethods = staticMethods;
         this.constructors = constructors;
+        this.operators = operators;
+        this.isType = isType;
     }
 
     public TVScriptInstance instantiate(Interpreter interpreter, Map<String, Object> arguments, Token callToken) {
@@ -33,10 +46,15 @@ public class TVScriptClass {
         // Evaluate and set initial field values (including superclasses)
         initializeFields(instance, interpreter);
 
-        // Find the best matching constructor
-        TVScriptFunction constructor = findBestConstructor(arguments, callToken);
+        if (constructors.isEmpty()) {
+            if (!isType) {
+                throw new RuntimeError(callToken, "No matching constructor found for " + name + " with provided arguments.");
+            }
+            applyTypeArguments(instance, arguments, callToken);
+            return instance;
+        }
 
-        // Call constructor
+        TVScriptFunction constructor = findBestConstructor(arguments, callToken);
         constructor.bind(instance).call(interpreter, arguments, callToken);
 
         return instance;
@@ -52,7 +70,22 @@ public class TVScriptClass {
             if (field.initializer() != null) {
                 value = interpreter.evaluate(field.initializer());
             }
-            instance.set(field.name(), value);
+            instance.defineField(field.name(), value);
+        }
+    }
+
+    private void applyTypeArguments(TVScriptInstance instance, Map<String, Object> arguments, Token callToken) {
+        Map<String, Statement.VarStatement> fieldMap = new HashMap<>();
+        for (Statement.VarStatement field : fields) {
+            fieldMap.put(field.name().lexeme(), field);
+        }
+
+        for (Map.Entry<String, Object> entry : arguments.entrySet()) {
+            Statement.VarStatement field = fieldMap.get(entry.getKey());
+            if (field == null) {
+                throw new RuntimeError(callToken, "Unknown field '" + entry.getKey() + "' for type '" + name + "'.");
+            }
+            instance.defineField(field.name(), entry.getValue());
         }
     }
 
@@ -123,6 +156,61 @@ public class TVScriptClass {
 
     TVScriptFunction findStaticMethod(String name) {
         return staticMethods.get(name);
+    }
+
+    TVScriptFunction findOperator(String operatorName, Object left, Object right) {
+        List<TVScriptFunction> candidates = operators.get(operatorName);
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+
+        List<TVScriptFunction> matching = new ArrayList<>();
+        for (TVScriptFunction function : candidates) {
+            if (matches(function, left, right)) {
+                matching.add(function);
+            }
+        }
+        return matching.isEmpty() ? null : matching.get(0);
+    }
+
+    private boolean matches(TVScriptFunction function, Object left, Object right) {
+        List<Statement.FunctionStatement.Parameter> parameters = function.parameters();
+        if (parameters.size() == 1) {
+            return isCompatibleArgument(parameters.get(0), right);
+        }
+        if (parameters.size() == 2) {
+            return isCompatibleArgument(parameters.get(0), left) && isCompatibleArgument(parameters.get(1), right);
+        }
+        return false;
+    }
+
+    private boolean isCompatibleArgument(Statement.FunctionStatement.Parameter parameter, Object value) {
+        Token type = parameter.type();
+        return switch (type.type()) {
+            case TYPE_INTEGER -> value instanceof Integer;
+            case TYPE_DECIMAL -> value instanceof Double;
+            case TYPE_STRING -> value instanceof String;
+            case TYPE_BOOLEAN -> value instanceof Boolean;
+            case NONE -> value == null;
+            case IDENTIFIER -> {
+                if (!(value instanceof TVScriptInstance instance)) {
+                    yield false;
+                }
+                yield isSameOrSubclass(instance.getType(), type.lexeme());
+            }
+            default -> true;
+        };
+    }
+
+    private boolean isSameOrSubclass(TVScriptClass actualType, String expectedTypeName) {
+        TVScriptClass current = actualType;
+        while (current != null) {
+            if (current.name.equals(expectedTypeName)) {
+                return true;
+            }
+            current = current.superclass;
+        }
+        return false;
     }
 
     @Override
