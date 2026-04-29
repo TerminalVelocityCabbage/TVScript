@@ -129,7 +129,9 @@ public interface Statement {
         public record ImportItem(Token name, Token alias) {}
     }
 
-    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, boolean isOverride, boolean isDefault) implements Statement {
+    record GenericParameter(Token name, Token superclassConstraint, List<Token> traitConstraints) {}
+
+    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, List<GenericParameter> genericParameters, boolean isOverride, boolean isDefault) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitFunctionStatement(this);
@@ -145,21 +147,21 @@ public interface Statement {
         }
     }
 
-    record ClassStatement(Token name, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors) implements Statement {
+    record ClassStatement(Token name, List<GenericParameter> genericParameters, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitClassStatement(this);
         }
     }
 
-    record TraitStatement(Token name, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods) implements Statement {
+    record TraitStatement(Token name, List<GenericParameter> genericParameters, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitTraitStatement(this);
         }
     }
 
-    record TypeStatement(Token name, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> operators) implements Statement {
+    record TypeStatement(Token name, List<GenericParameter> genericParameters, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> operators) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitTypeStatement(this);

@@ -142,7 +142,7 @@ public interface Expression {
 
     public record MapEntry(Expression key, Expression value) {}
 
-    record CallExpression(Expression callee, Token paren, List<Argument> arguments, boolean nativeCall) implements Expression {
+    record CallExpression(Expression callee, Token paren, List<Argument> arguments, List<Token> typeArguments, boolean nativeCall) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitCallExpression(this);
@@ -211,7 +211,7 @@ public interface Expression {
         }
     }
 
-    record NewExpression(Token keyword, Expression callee, List<Argument> arguments) implements Expression {
+    record NewExpression(Token keyword, Expression callee, List<Argument> arguments, List<Token> typeArguments) implements Expression {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitNewExpression(this);

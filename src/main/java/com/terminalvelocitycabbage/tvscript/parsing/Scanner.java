@@ -180,6 +180,9 @@ public class Scanner {
             case '|':
                 addToken(TokenType.PIPE);
                 break;
+            case '&':
+                addToken(TokenType.AMPERSAND);
+                break;
             case '?': addToken(TokenType.QUESTION); break;
             case '@': addToken(TokenType.AT); break;
             case '!':

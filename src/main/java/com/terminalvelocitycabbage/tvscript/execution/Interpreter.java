@@ -45,13 +45,27 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private static class TVList {
         private final List<Object> values;
+        private String elementType;
 
         TVList(List<Object> values) {
+            this(values, null);
+        }
+
+        TVList(List<Object> values, String elementType) {
             this.values = values;
+            this.elementType = elementType;
         }
 
         List<Object> values() {
             return values;
+        }
+
+        String elementType() {
+            return elementType;
+        }
+
+        void setElementType(String elementType) {
+            this.elementType = elementType;
         }
 
         @Override
@@ -62,13 +76,27 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private static class TVSet {
         private final Set<Object> values;
+        private String elementType;
 
         TVSet(Set<Object> values) {
+            this(values, null);
+        }
+
+        TVSet(Set<Object> values, String elementType) {
             this.values = values;
+            this.elementType = elementType;
         }
 
         Set<Object> values() {
             return values;
+        }
+
+        String elementType() {
+            return elementType;
+        }
+
+        void setElementType(String elementType) {
+            this.elementType = elementType;
         }
 
         @Override
@@ -79,13 +107,34 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private static class TVMap {
         private final Map<Object, Object> values;
+        private String keyType;
+        private String valueType;
 
         TVMap(Map<Object, Object> values) {
+            this(values, null, null);
+        }
+
+        TVMap(Map<Object, Object> values, String keyType, String valueType) {
             this.values = values;
+            this.keyType = keyType;
+            this.valueType = valueType;
         }
 
         Map<Object, Object> values() {
             return values;
+        }
+
+        String keyType() {
+            return keyType;
+        }
+
+        String valueType() {
+            return valueType;
+        }
+
+        void setTypes(String keyType, String valueType) {
+            this.keyType = keyType;
+            this.valueType = valueType;
         }
 
         @Override
@@ -120,6 +169,8 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         protected abstract Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken);
     }
+
+    private record ParsedRuntimeType(String baseName, List<String> arguments) {}
 
     private final Environment configuredGlobals;
     private Environment environment;
@@ -435,6 +486,8 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     @Override
     public Object visitAssignExpression(AssignExpression expr) {
         Object value = evaluate(expr.value());
+        Object previousValue = environment.get(expr.name());
+        preserveCollectionTypeConstraints(previousValue, value, expr.name());
         environment.assign(expr.name(), value);
         return value;
     }
@@ -585,11 +638,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
                 throw new RuntimeError(expr.bracket(), "List index must be an integer.");
             }
             int resolvedIndex = resolveListIndex(expr.bracket(), (int) index, list.values().size());
+            ensureListElementType(list, value, expr.bracket());
             list.values().set(resolvedIndex, value);
             return value;
         }
 
         if (object instanceof TVMap map) {
+            ensureMapEntryType(map, index, value, expr.bracket());
             map.values().put(index, value);
             return value;
         }
@@ -606,7 +661,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         int size = list.values().size();
         if (size == 0) {
-            return new TVList(new ArrayList<>());
+            return new TVList(new ArrayList<>(), list.elementType());
         }
 
         Integer startValue = evaluateOptionalIndex(expr.bracket(), expr.start(), true);
@@ -623,10 +678,10 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
 
         if (start > end) {
-            return new TVList(new ArrayList<>());
+            return new TVList(new ArrayList<>(), list.elementType());
         }
 
-        return new TVList(new ArrayList<>(list.values().subList(start, end + 1)));
+        return new TVList(new ArrayList<>(list.values().subList(start, end + 1)), list.elementType());
     }
 
     @Override
@@ -645,14 +700,14 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
                 for (int i = 0; i < integerSize; i++) {
                     values.add(null);
                 }
-                return new TVList(values);
+                return new TVList(values, null);
             }
 
             List<Object> elements = new ArrayList<>();
             for (Expression element : expr.elements()) {
                 elements.add(evaluate(element));
             }
-            return new TVList(elements);
+            return new TVList(elements, null);
         }
 
         if (expr.collectionType().type() == TokenType.SET) {
@@ -660,7 +715,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             for (Expression element : expr.elements()) {
                 values.add(evaluate(element));
             }
-            return new TVSet(values);
+            return new TVSet(values, null);
         }
 
         if (expr.collectionType().type() == TokenType.MAP) {
@@ -668,7 +723,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             for (MapEntry entry : expr.entries()) {
                 values.put(evaluate(entry.key()), evaluate(entry.value()));
             }
-            return new TVMap(values);
+            return new TVMap(values, null, null);
         }
 
         throw new RuntimeError(expr.keyword(), "Unsupported collection type.");
@@ -782,6 +837,286 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
 
         return false;
+    }
+
+    private void applyDeclaredCollectionTypes(Token declaredType, Object value, Token errorToken) {
+        if (value == null) {
+            return;
+        }
+
+        ParsedRuntimeType parsedType = parseRuntimeType(declaredType.lexeme());
+
+        if (declaredType.type() == TokenType.LIST) {
+            if (!(value instanceof TVList list)) {
+                throw new RuntimeError(errorToken, "Expected list value for type '" + declaredType.lexeme() + "'.");
+            }
+            if (!parsedType.arguments().isEmpty()) {
+                String elementType = parsedType.arguments().get(0);
+                validateExistingListElements(list, elementType, errorToken);
+                list.setElementType(elementType);
+            }
+            return;
+        }
+
+        if (declaredType.type() == TokenType.SET) {
+            if (!(value instanceof TVSet set)) {
+                throw new RuntimeError(errorToken, "Expected set value for type '" + declaredType.lexeme() + "'.");
+            }
+            if (!parsedType.arguments().isEmpty()) {
+                String elementType = parsedType.arguments().get(0);
+                validateExistingSetElements(set, elementType, errorToken);
+                set.setElementType(elementType);
+            }
+            return;
+        }
+
+        if (declaredType.type() == TokenType.MAP) {
+            if (!(value instanceof TVMap map)) {
+                throw new RuntimeError(errorToken, "Expected map value for type '" + declaredType.lexeme() + "'.");
+            }
+            if (parsedType.arguments().size() >= 2) {
+                String keyType = parsedType.arguments().get(0);
+                String valueType = parsedType.arguments().get(1);
+                validateExistingMapEntries(map, keyType, valueType, errorToken);
+                map.setTypes(keyType, valueType);
+            }
+        }
+    }
+
+    private void preserveCollectionTypeConstraints(Object previousValue, Object newValue, Token errorToken) {
+        if (previousValue instanceof TVList previousList && newValue instanceof TVList newList && previousList.elementType() != null) {
+            validateExistingListElements(newList, previousList.elementType(), errorToken);
+            newList.setElementType(previousList.elementType());
+            return;
+        }
+
+        if (previousValue instanceof TVSet previousSet && newValue instanceof TVSet newSet && previousSet.elementType() != null) {
+            validateExistingSetElements(newSet, previousSet.elementType(), errorToken);
+            newSet.setElementType(previousSet.elementType());
+            return;
+        }
+
+        if (previousValue instanceof TVMap previousMap && newValue instanceof TVMap newMap
+                && (previousMap.keyType() != null || previousMap.valueType() != null)) {
+            validateExistingMapEntries(newMap, previousMap.keyType(), previousMap.valueType(), errorToken);
+            newMap.setTypes(previousMap.keyType(), previousMap.valueType());
+        }
+    }
+
+    private void ensureListElementType(TVList list, Object value, Token token) {
+        if (list.elementType() == null || value == null) {
+            return;
+        }
+
+        if (!matchesTypeName(value, list.elementType())) {
+            throw new RuntimeError(token,
+                    "List expects elements of type '" + list.elementType() + "' but got '" + runtimeTypeName(value) + "'.");
+        }
+    }
+
+    private void ensureSetElementType(TVSet set, Object value, Token token) {
+        if (set.elementType() == null || value == null) {
+            return;
+        }
+
+        if (!matchesTypeName(value, set.elementType())) {
+            throw new RuntimeError(token,
+                    "Set expects elements of type '" + set.elementType() + "' but got '" + runtimeTypeName(value) + "'.");
+        }
+    }
+
+    private void ensureMapEntryType(TVMap map, Object key, Object value, Token token) {
+        if (map.keyType() != null && key != null && !matchesTypeName(key, map.keyType())) {
+            throw new RuntimeError(token,
+                    "Map expects keys of type '" + map.keyType() + "' but got '" + runtimeTypeName(key) + "'.");
+        }
+
+        if (map.valueType() != null && value != null && !matchesTypeName(value, map.valueType())) {
+            throw new RuntimeError(token,
+                    "Map expects values of type '" + map.valueType() + "' but got '" + runtimeTypeName(value) + "'.");
+        }
+    }
+
+    private void validateExistingListElements(TVList list, String elementType, Token token) {
+        for (Object element : list.values()) {
+            if (element != null && !matchesTypeName(element, elementType)) {
+                throw new RuntimeError(token,
+                        "List expects elements of type '" + elementType + "' but found '" + runtimeTypeName(element) + "'.");
+            }
+        }
+    }
+
+    private void validateExistingSetElements(TVSet set, String elementType, Token token) {
+        for (Object element : set.values()) {
+            if (element != null && !matchesTypeName(element, elementType)) {
+                throw new RuntimeError(token,
+                        "Set expects elements of type '" + elementType + "' but found '" + runtimeTypeName(element) + "'.");
+            }
+        }
+    }
+
+    private void validateExistingMapEntries(TVMap map, String keyType, String valueType, Token token) {
+        for (Map.Entry<Object, Object> entry : map.values().entrySet()) {
+            if (keyType != null && entry.getKey() != null && !matchesTypeName(entry.getKey(), keyType)) {
+                throw new RuntimeError(token,
+                        "Map expects keys of type '" + keyType + "' but found '" + runtimeTypeName(entry.getKey()) + "'.");
+            }
+            if (valueType != null && entry.getValue() != null && !matchesTypeName(entry.getValue(), valueType)) {
+                throw new RuntimeError(token,
+                        "Map expects values of type '" + valueType + "' but found '" + runtimeTypeName(entry.getValue()) + "'.");
+            }
+        }
+    }
+
+    private boolean matchesTypeName(Object value, String typeName) {
+        if (value == null) {
+            return true;
+        }
+
+        ParsedRuntimeType parsedType = parseRuntimeType(typeName);
+        String baseType = parsedType.baseName();
+
+        return switch (baseType) {
+            case "integer" -> value instanceof Integer;
+            case "decimal" -> value instanceof Double || value instanceof Integer;
+            case "string" -> value instanceof String;
+            case "boolean" -> value instanceof Boolean;
+            case "none" -> value == null;
+            case "list" -> {
+                if (!(value instanceof TVList list)) {
+                    yield false;
+                }
+                if (parsedType.arguments().isEmpty()) {
+                    yield true;
+                }
+                String elementType = parsedType.arguments().get(0);
+                if (list.elementType() != null) {
+                    yield list.elementType().equals(elementType);
+                }
+                boolean valid = true;
+                for (Object element : list.values()) {
+                    if (element != null && !matchesTypeName(element, elementType)) {
+                        valid = false;
+                        break;
+                    }
+                }
+                yield valid;
+            }
+            case "set" -> {
+                if (!(value instanceof TVSet set)) {
+                    yield false;
+                }
+                if (parsedType.arguments().isEmpty()) {
+                    yield true;
+                }
+                String elementType = parsedType.arguments().get(0);
+                if (set.elementType() != null) {
+                    yield set.elementType().equals(elementType);
+                }
+                boolean valid = true;
+                for (Object element : set.values()) {
+                    if (element != null && !matchesTypeName(element, elementType)) {
+                        valid = false;
+                        break;
+                    }
+                }
+                yield valid;
+            }
+            case "map" -> {
+                if (!(value instanceof TVMap map)) {
+                    yield false;
+                }
+                if (parsedType.arguments().size() < 2) {
+                    yield true;
+                }
+                String keyType = parsedType.arguments().get(0);
+                String valueType = parsedType.arguments().get(1);
+                if (map.keyType() != null && map.valueType() != null) {
+                    yield map.keyType().equals(keyType) && map.valueType().equals(valueType);
+                }
+                boolean valid = true;
+                for (Map.Entry<Object, Object> entry : map.values().entrySet()) {
+                    if (entry.getKey() != null && !matchesTypeName(entry.getKey(), keyType)) {
+                        valid = false;
+                        break;
+                    }
+                    if (entry.getValue() != null && !matchesTypeName(entry.getValue(), valueType)) {
+                        valid = false;
+                        break;
+                    }
+                }
+                yield valid;
+            }
+            default -> {
+                Object resolvedType = null;
+                try {
+                    resolvedType = environment.get(new Token(TokenType.IDENTIFIER, baseType, null, 0));
+                } catch (RuntimeError ignored) {
+                    // Fall back to runtime type name comparison below.
+                }
+
+                if (resolvedType instanceof TVScriptClass expectedClass) {
+                    if (!(value instanceof TVScriptInstance instance)) {
+                        yield false;
+                    }
+                    yield isClassOrSubclass(instance.getType(), expectedClass);
+                }
+
+                if (resolvedType instanceof TVScriptTrait expectedTrait) {
+                    yield checkHasTrait(value, expectedTrait);
+                }
+
+                yield runtimeTypeName(value).equals(baseType);
+            }
+        };
+    }
+
+    private ParsedRuntimeType parseRuntimeType(String typeName) {
+        int bracketStart = typeName.indexOf('[');
+        if (bracketStart < 0 || !typeName.endsWith("]")) {
+            return new ParsedRuntimeType(typeName.trim(), List.of());
+        }
+
+        String baseName = typeName.substring(0, bracketStart).trim();
+        String argumentsText = typeName.substring(bracketStart + 1, typeName.length() - 1).trim();
+        if (argumentsText.isEmpty()) {
+            return new ParsedRuntimeType(baseName, List.of());
+        }
+
+        if ("map".equals(baseName)) {
+            return new ParsedRuntimeType(baseName, splitTopLevel(argumentsText, '|'));
+        }
+
+        return new ParsedRuntimeType(baseName, splitTopLevel(argumentsText, ','));
+    }
+
+    private List<String> splitTopLevel(String value, char separator) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder currentPart = new StringBuilder();
+        int depth = 0;
+
+        for (int i = 0; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (current == '[') {
+                depth++;
+            } else if (current == ']') {
+                depth--;
+            }
+
+            if (current == separator && depth == 0) {
+                parts.add(currentPart.toString().trim());
+                currentPart.setLength(0);
+                continue;
+            }
+
+            currentPart.append(current);
+        }
+
+        if (!currentPart.isEmpty()) {
+            parts.add(currentPart.toString().trim());
+        }
+
+        return parts;
     }
 
     private boolean isClassOrSubclass(TVScriptClass actual, TVScriptClass expected) {
@@ -1162,6 +1497,8 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             type = stmt.type().type();
         }
 
+        applyDeclaredCollectionTypes(stmt.type(), value, stmt.name());
+
         environment.define(stmt.name(), value, type, stmt.isConst());
         return null;
     }
@@ -1271,6 +1608,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             case "add" -> new CollectionMethod("add", 1) {
                 @Override
                 protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    ensureListElementType(list, arguments.get(0), callToken);
                     list.values().add(arguments.get(0));
                     return null;
                 }
@@ -1283,6 +1621,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
                         throw new RuntimeError(callToken, "List index must be an integer.");
                     }
                     int index = resolveListInsertIndex(callToken, (int) indexValue, list.values().size());
+                    ensureListElementType(list, arguments.get(1), callToken);
                     list.values().add(index, arguments.get(1));
                     return null;
                 }
@@ -1338,6 +1677,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             case "add" -> new CollectionMethod("add", 1) {
                 @Override
                 protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
+                    ensureSetElementType(set, arguments.get(0), callToken);
                     set.values().add(arguments.get(0));
                     return null;
                 }
@@ -1385,13 +1725,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             case "keys" -> new CollectionMethod("keys", 0) {
                 @Override
                 protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
-                    return new TVList(new ArrayList<>(map.values().keySet()));
+                    return new TVList(new ArrayList<>(map.values().keySet()), map.keyType());
                 }
             };
             case "values" -> new CollectionMethod("values", 0) {
                 @Override
                 protected Object invoke(Interpreter interpreter, List<Object> arguments, Token callToken) {
-                    return new TVList(new ArrayList<>(map.values().values()));
+                    return new TVList(new ArrayList<>(map.values().values()), map.valueType());
                 }
             };
             case "clear" -> new CollectionMethod("clear", 0) {

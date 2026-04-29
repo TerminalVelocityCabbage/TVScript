@@ -31,18 +31,19 @@ Currently, the language is under heavy development. Below is the implementation 
 
 ### Advanced Features
 - [x] Built-in Collections (`list`, `set`, `map`)
-- [ ] Generics
+- [x] Generics
 - [ ] Error Handling (`try` / `catch` / `throw`)
 - [ ] Async Execution (`async` / `await` / `launch`)
 - [ ] Events & Event Listeners (`event` / `on` / `dispatch`)
 - [ ] Annotations
+- [ ] Native Classes
+- [x] Native Functions
 
 ### Ecosystem & Runtime
 - [ ] Module System (`import`)
 - [ ] Script Visibility Modifiers
 - [x] Main Entrypoints (`main`)
 - [ ] Bytecode Compilation (Currently Interpreted)
-- [ ] Native Classes
 
 ---
 
@@ -1194,33 +1195,33 @@ result = operations["double"](num: 5) //10
 A note about function types: Function parameter names are a part of the function type: ``(integer num) -> integer`` does not equal ``(integer x) -> integer``. Function return types are also part of the type: ``(integer num) -> integer`` does not equal ``(integer num) -> string``.
 
 ## Generics
-Generics are a way to define functionality without requiring a specific type. Lets take one of the most basic examples possible.
-```
-function printNumbers(list[integer] numbers):
-    for [integer number] in numbers:
-        print number
-```
-We can call the above function like this:
-```
-list[integer] numbers = new list[](1, 2, 3)
-printNumbers(numbers)
-//Prints 1 2 3 to the console
-```
-But now we can't do this:
-```
-list[decimal] numbers = new list[](1.1, 2.2, 3.3)
-printNumbers(numbers)
-//Error no method printNumbers(list[decimal]) found
-```
-Without generics, we would have to define a new function for each type we want to be able to print, but we can easily generify the above function like this:
-```
-function printNumbers[T < Number](list[T] numbers):
-    for [T number] in numbers:
-        print number
-```
-Since integer and decimal both have the trait Number, they both match the requirements of the generic function. We can refer to this generic type now as T. T is just the standard first generic type name people use in generics, but this can be any identifier you choose, though we encourage you capitalize them and industry standard is just a single letter most of the time.
+Generics let you define reusable behavior without hard-coding one concrete type.
 
-Now that covers how to match a single trait, but what if we want to match multiple traits or even match a class that extends a specific parent class? lets go back to our animal example:
+### Generic functions
+You can use either inferred type arguments or explicit type arguments.
+```
+function identity[T](T value) -> T:
+    return value
+
+print identity(value: 7) // inferred T = integer
+print identity[decimal](value: 2.5) // explicit T = decimal
+print identity[string](value: "hello")
+```
+
+### Generic constraints
+Use `<` for superclass constraint and `&` for additional trait constraints.
+```
+function trigger[T < Animal & MakesSound](T animal):
+    animal.makeSound()
+    print animal.name
+```
+
+That syntax supports:
+- one optional superclass constraint
+- zero or more trait constraints
+- unconstrained generic parameters (for example `function id[T](T value) -> T`)
+
+Now that covers the syntax, lets use a full class example:
 ```
 trait MakesSound:
   string makeSound()
@@ -1253,9 +1254,10 @@ class Cage[T < Animal & MakesSound]:
         animal.makeSound()
         print "The {animal.name} didn't like that, shame on you!"
 ```
-Now any animal that makes a sound can be put in a cage, and when you kick the cage you get notified about how horrible of a person you are. Note that any fields defined on the class you are extending in your generic constraint are accessible if they are not marked as private, and any methods from the class or traits you constrain with are also accessible if they are not private.
+Any animal that makes a sound can be put in the cage, and you can safely use members guaranteed by constraints.
 
-Note that your constraint can only have one super class and as many traits as you want. ``class Cage[T < ParentClass & Trait1 & Trait2 & EtcTraits]:`` If you do not need to access any fields or methods from any parent class or traits you don't have to constrain it, see example below:
+### Generic collections
+Collections support parameterized element/key/value types and are enforced at runtime for mutation operations.
 ```
 function returnOddIndexedItems[T](list[T] items):
     list[T] oddIndexedItems = new list[]
@@ -1263,6 +1265,22 @@ function returnOddIndexedItems[T](list[T] items):
         if i % 2 != 0: oddIndexedItems.add(items[i])
     return oddIndexedItems
 ```
+
+Runtime checks include:
+- `list[T]` element mutation (`add`, `insert`, index assignment)
+- `set[T]` mutation (`add`)
+- `map[K|V]` index assignment (`map[key] = value`)
+
+### Error behavior
+Generic misuse is validated with clear diagnostics:
+- Wrong type argument count at call/new/declaration sites is reported as a compile error.
+- Constraint violations are reported as a compile error.
+- Invalid generic collection mutations are reported as runtime errors with expected vs actual type info.
+
+### Current implementation notes
+- Generic declarations and type arguments are supported for functions, classes, variable type annotations, and collection types.
+- Type argument inference is supported from call/new arguments.
+- Explicit type arguments are supported for calls/new (`fn[T](...)`, `new Box[T](...)`).
 
 ## Errors and handling them
 Errors are a way to signal that something went wrong. Sometimes this is expected, and sometimes it is not. When an error occurs, it is important to handle it in a way that makes sense for your program. There are two main ways to handle errors: using try-catch blocks or using error handling functions. First lets look at how to define your own error types and throw them when something goes wrong.

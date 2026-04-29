@@ -71,9 +71,9 @@ public class Parser {
                 return varDeclaration(previous());
             }
 
-            if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
-                advance();
-                return varDeclaration(previous());
+            if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
+                Token type = consumeType("Expect variable type.");
+                return varDeclaration(type);
             }
 
             return statement();
@@ -140,8 +140,8 @@ public class Parser {
             finalType = previous();
         }
 
-        if (finalType.type() == LIST || finalType.type() == SET || finalType.type() == MAP) {
-            parseCollectionTypeParameters(finalType);
+        if ((finalType.type() == LIST || finalType.type() == SET || finalType.type() == MAP) && match(LEFT_BRACKET)) {
+            finalType = parseParameterizedType(finalType);
         }
 
         Token name = consume(IDENTIFIER, "Expect variable name.");
@@ -372,11 +372,12 @@ public class Parser {
             }
         }
 
-        return new FunctionStatement(keyword, parameters, null, body, false, false);
+        return new FunctionStatement(keyword, parameters, null, body, List.of(), false, false);
     }
 
     private Statement classDeclaration() {
         Token name = consume(IDENTIFIER, "Expect class name.");
+        List<GenericParameter> genericParameters = parseGenericParameters();
 
         Token superclass = null;
         List<Token> traits = new ArrayList<>();
@@ -408,9 +409,9 @@ public class Parser {
         while (!check(DEDENT) && !isAtEnd()) {
             if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP, VAR, CONST)) {
                 fields.add((VarStatement)varDeclaration(previous()));
-            } else if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
-                advance();
-                fields.add((VarStatement)varDeclaration(previous()));
+            } else if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
+                Token type = consumeType("Expect field type.");
+                fields.add((VarStatement)varDeclaration(type));
             } else if (match(CONSTRUCTOR)) {
                 constructors.add(constructorDeclaration());
             } else if (match(FUNCTION)) {
@@ -435,11 +436,12 @@ public class Parser {
             throw new ParseError();
         }
 
-        return new ClassStatement(name, superclass, traits, fields, methods, staticMethods, constructors);
+        return new ClassStatement(name, genericParameters, superclass, traits, fields, methods, staticMethods, constructors);
     }
 
     private Statement traitDeclaration() {
         Token name = consume(IDENTIFIER, "Expect trait name.");
+        List<GenericParameter> genericParameters = parseGenericParameters();
 
         List<Token> traits = new ArrayList<>();
         if (match(LESS)) {
@@ -474,11 +476,12 @@ public class Parser {
 
         consume(DEDENT, "Expect dedent after trait body.");
 
-        return new TraitStatement(name, traits, fields, methods);
+        return new TraitStatement(name, genericParameters, traits, fields, methods);
     }
 
     private Statement typeDeclaration() {
         Token name = consume(IDENTIFIER, "Expect type name.");
+        List<GenericParameter> genericParameters = parseGenericParameters();
 
         List<Token> traits = new ArrayList<>();
         if (match(LESS)) {
@@ -504,9 +507,9 @@ public class Parser {
                     field = new VarStatement(field.type(), field.name(), field.initializer(), true);
                 }
                 fields.add(field);
-            } else if (check(IDENTIFIER) && checkNext(IDENTIFIER)) {
-                advance();
-                VarStatement field = (VarStatement) varDeclaration(previous());
+            } else if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
+                Token type = consumeType("Expect field type.");
+                VarStatement field = (VarStatement) varDeclaration(type);
                 if (!field.isConst()) {
                     field = new VarStatement(field.type(), field.name(), field.initializer(), true);
                 }
@@ -527,7 +530,7 @@ public class Parser {
         }
 
         consume(DEDENT, "Expect dedent after type body.");
-        return new TypeStatement(name, traits, fields, methods, operators);
+        return new TypeStatement(name, genericParameters, traits, fields, methods, operators);
     }
 
     private FunctionStatement operatorDeclaration(Token ownerType) {
@@ -576,7 +579,7 @@ public class Parser {
             }
         }
 
-        return new FunctionStatement(operatorName, parameters, returnType, body, false, false);
+        return new FunctionStatement(operatorName, parameters, returnType, body, List.of(), false, false);
     }
 
     private FunctionStatement.Parameter operatorParameter(Token ownerType) {
@@ -607,6 +610,7 @@ public class Parser {
     }
 
     private FunctionStatement finishFunctionDeclaration(Token name, String kind, boolean isOverride, boolean isDefault) {
+        List<GenericParameter> genericParameters = parseGenericParameters();
         consume(LEFT_PAREN, "Expect '(' after " + kind + ".");
         List<FunctionStatement.Parameter> parameters = new ArrayList<>();
         if (!check(RIGHT_PAREN)) {
@@ -636,7 +640,7 @@ public class Parser {
             }
         }
 
-        return new FunctionStatement(name, parameters, returnType, body, isOverride, isDefault);
+        return new FunctionStatement(name, parameters, returnType, body, genericParameters, isOverride, isDefault);
     }
 
     private Statement functionDeclaration(String kind) {
@@ -654,16 +658,75 @@ public class Parser {
         return new FunctionStatement.Parameter(type, name, defaultValue);
     }
 
-    private Token consumeType(String message) {
-        if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER)) {
-            return previous();
+    private List<GenericParameter> parseGenericParameters() {
+        if (!match(LEFT_BRACKET)) {
+            return List.of();
         }
-        if (match(LIST, SET, MAP)) {
+
+        List<GenericParameter> genericParameters = new ArrayList<>();
+        if (!check(RIGHT_BRACKET)) {
+            do {
+                Token parameterName = consume(IDENTIFIER, "Expect generic type parameter name.");
+                Token superclassConstraint = null;
+                List<Token> traitConstraints = new ArrayList<>();
+
+                if (match(LESS)) {
+                    superclassConstraint = consume(IDENTIFIER, "Expect superclass constraint after '<'.");
+                    while (match(AMPERSAND)) {
+                        traitConstraints.add(consume(IDENTIFIER, "Expect trait constraint after '&'."));
+                    }
+                }
+
+                genericParameters.add(new GenericParameter(parameterName, superclassConstraint, traitConstraints));
+            } while (match(COMMA));
+        }
+
+        consume(RIGHT_BRACKET, "Expect ']' after generic type parameters.");
+        return genericParameters;
+    }
+
+    private Token consumeType(String message) {
+        if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER, LIST, SET, MAP)) {
             Token type = previous();
-            parseCollectionTypeParameters(type);
+            if (match(LEFT_BRACKET)) {
+                return parseParameterizedType(type);
+            }
             return type;
         }
         throw error(peek(), message);
+    }
+
+    private Token parseParameterizedType(Token baseType) {
+        StringBuilder name = new StringBuilder(baseType.lexeme()).append("[");
+
+        if (baseType.type() == MAP) {
+            Token keyType = consumeType("Expect map key type.");
+            consume(PIPE, "Expect '|' between map key and value types.");
+            Token valueType = consumeType("Expect map value type.");
+            name.append(keyType.lexeme()).append("|").append(valueType.lexeme());
+        } else if (baseType.type() == LIST || baseType.type() == SET) {
+            Token elementType = consumeType("Expect collection element type.");
+            name.append(elementType.lexeme());
+            if (match(COMMA)) {
+                throw error(previous(), "Collection types accept exactly one type argument.");
+            }
+        } else {
+            if (!check(RIGHT_BRACKET)) {
+                boolean first = true;
+                do {
+                    Token argumentType = consumeType("Expect type argument.");
+                    if (!first) {
+                        name.append(", ");
+                    }
+                    name.append(argumentType.lexeme());
+                    first = false;
+                } while (match(COMMA));
+            }
+        }
+
+        consume(RIGHT_BRACKET, "Expect ']' after type arguments.");
+        name.append("]");
+        return new Token(baseType.type(), name.toString(), null, baseType.line());
     }
 
     private void parseCollectionTypeParameters(Token collectionType) {
@@ -873,7 +936,7 @@ public class Parser {
 
         while (true) {
             if (match(LEFT_PAREN)) {
-                expr = finishCall(expr, false);
+                expr = finishCall(expr, false, List.of());
             } else if (match(DOT)) {
                 if (match(SUPER)) {
                     Token superKeyword = previous();
@@ -888,8 +951,15 @@ public class Parser {
                     Token name = consume(IDENTIFIER, "Expect property name after '.'.");
                     expr = new GetExpression(expr, name);
                 }
-            } else if (match(LEFT_BRACKET)) {
-                expr = finishIndex(expr, previous());
+            } else if (check(LEFT_BRACKET)) {
+                List<Token> typeArguments = tryParseTypeArgumentsForCall();
+                if (typeArguments != null) {
+                    consume(LEFT_PAREN, "Expect '(' after type arguments.");
+                    expr = finishCall(expr, false, typeArguments);
+                } else {
+                    consume(LEFT_BRACKET, "Expect '[' before index access.");
+                    expr = finishIndex(expr, previous());
+                }
             } else {
                 break;
             }
@@ -903,7 +973,7 @@ public class Parser {
             Token nativeKeyword = previous();
             Token name = consume(IDENTIFIER, "Expect native function name after 'native'.");
             if (match(LEFT_PAREN)) {
-                return finishCall(new VariableExpression(name), true);
+                return finishCall(new VariableExpression(name), true, List.of());
             }
             return new NativeExpression(nativeKeyword, name);
         }
@@ -1017,7 +1087,7 @@ public class Parser {
         throw error(peek(), "Expect expression.");
     }
 
-    private Expression finishCall(Expression callee, boolean nativeCall) {
+    private Expression finishCall(Expression callee, boolean nativeCall, List<Token> typeArguments) {
         List<CallExpression.Argument> arguments = new ArrayList<>();
         Set<String> argumentNames = new HashSet<>();
         boolean hasNamedArguments = false;
@@ -1054,7 +1124,107 @@ public class Parser {
         }
 
         Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
-        return new CallExpression(callee, paren, arguments, nativeCall);
+        return new CallExpression(callee, paren, arguments, typeArguments, nativeCall);
+    }
+
+    private List<Token> tryParseTypeArgumentsForCall() {
+        if (!looksLikeTypeArgumentListForCall()) {
+            return null;
+        }
+
+        consume(LEFT_BRACKET, "Expect '[' before type arguments.");
+        List<Token> typeArguments = new ArrayList<>();
+        if (!check(RIGHT_BRACKET)) {
+            do {
+                typeArguments.add(consumeType("Expect type argument."));
+            } while (match(COMMA));
+        }
+        consume(RIGHT_BRACKET, "Expect ']' after type arguments.");
+        return typeArguments;
+    }
+
+    private boolean looksLikeTypeArgumentListForCall() {
+        if (!check(LEFT_BRACKET)) {
+            return false;
+        }
+
+        int depth = 0;
+        int index = current;
+        while (index < tokens.size()) {
+            TokenType type = tokens.get(index).type();
+            if (type == LEFT_BRACKET) {
+                depth++;
+                index++;
+                continue;
+            }
+            if (type == RIGHT_BRACKET) {
+                depth--;
+                index++;
+                if (depth == 0) {
+                    break;
+                }
+                continue;
+            }
+
+            if (depth <= 0) {
+                return false;
+            }
+
+            if (type == COMMA || type == PIPE) {
+                index++;
+                continue;
+            }
+
+            if (isTypeToken(type)) {
+                index++;
+                continue;
+            }
+
+            return false;
+        }
+
+        if (depth != 0 || index >= tokens.size()) {
+            return false;
+        }
+
+        return tokens.get(index).type() == LEFT_PAREN;
+    }
+
+    private boolean isTypeToken(TokenType type) {
+        return type == TYPE_INTEGER || type == TYPE_DECIMAL || type == TYPE_STRING || type == TYPE_BOOLEAN
+                || type == TYPE_RANGE || type == NONE || type == FUNCTION || type == IDENTIFIER
+                || type == LIST || type == SET || type == MAP;
+    }
+
+    private boolean looksLikeTypedVariableDeclaration() {
+        int endIndex = scanTypeEnd(current);
+        return endIndex != -1 && endIndex < tokens.size() && tokens.get(endIndex).type() == IDENTIFIER;
+    }
+
+    private int scanTypeEnd(int startIndex) {
+        if (startIndex >= tokens.size() || !isTypeToken(tokens.get(startIndex).type())) {
+            return -1;
+        }
+
+        int index = startIndex + 1;
+        if (index < tokens.size() && tokens.get(index).type() == LEFT_BRACKET) {
+            int depth = 1;
+            index++;
+            while (index < tokens.size() && depth > 0) {
+                TokenType type = tokens.get(index).type();
+                if (type == LEFT_BRACKET) {
+                    depth++;
+                } else if (type == RIGHT_BRACKET) {
+                    depth--;
+                }
+                index++;
+            }
+            if (depth != 0) {
+                return -1;
+            }
+        }
+
+        return index;
     }
 
     private Expression finishIndex(Expression object, Token bracket) {
@@ -1088,7 +1258,7 @@ public class Parser {
 
         Expression callee = call();
         if (callee instanceof CallExpression call) {
-            return new NewExpression(keyword, call.callee(), call.arguments());
+            return new NewExpression(keyword, call.callee(), call.arguments(), call.typeArguments());
         }
 
         throw error(keyword, "Expect constructor call after 'new'.");

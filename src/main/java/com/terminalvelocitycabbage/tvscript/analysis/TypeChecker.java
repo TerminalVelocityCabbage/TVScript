@@ -27,6 +27,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final Map<String, ClassStatement> classes = new HashMap<>();
     private final Map<String, TraitStatement> traits = new HashMap<>();
     private final Map<String, TypeStatement> types = new HashMap<>();
+    private final Map<String, FunctionStatement> functions = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private int loopDepth = 0;
 
@@ -249,6 +250,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public Void visitFunctionStatement(FunctionStatement stmt) {
         if (stmt.name().type() != TokenType.CONSTRUCTOR) {
             declare(stmt.name(), TokenType.FUNCTION, true, stmt.returnType() != null ? stmt.returnType().type() : null);
+            functions.put(stmt.name().lexeme(), stmt);
         }
         beginScope();
         for (FunctionStatement.Parameter param : stmt.parameters()) {
@@ -451,6 +453,10 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         TokenType inferredType = declaredType;
         String declaredNamedType = declaredType == TokenType.IDENTIFIER ? stmt.type().lexeme() : null;
         String inferredNamedType = declaredNamedType;
+
+        if (declaredType == TokenType.IDENTIFIER) {
+            validateGenericTypeConstraints(stmt.type());
+        }
 
         if (stmt.initializer() != null) {
             inferredType = check(stmt.initializer());
@@ -683,6 +689,10 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
             VariableStaticInfo info = lookup(varExpr.name());
             if (info != null && info.type == TokenType.FUNCTION) {
+                FunctionStatement functionDefinition = functions.get(calleeName);
+                if (functionDefinition != null) {
+                    validateFunctionTypeArguments(varExpr.name(), functionDefinition, expr.typeArguments());
+                }
                 return info.returnType;
             }
         } else if (expr.nativeCall()) {
@@ -844,6 +854,14 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     @Override
     public TokenType visitNewExpression(NewExpression expr) {
         check(expr.callee());
+
+        if (expr.callee() instanceof VariableExpression variableExpression) {
+            ClassStatement classStatement = classes.get(variableExpression.name().lexeme());
+            if (classStatement != null) {
+                validateClassTypeArguments(variableExpression.name(), classStatement, expr.typeArguments());
+            }
+        }
+
         for (Argument arg : expr.arguments()) {
             check(arg.value());
         }
@@ -852,19 +870,52 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     private String inferNamedType(Expression initializer) {
         if (initializer instanceof NewExpression newExpression && newExpression.callee() instanceof VariableExpression variableExpression) {
+            if (!newExpression.typeArguments().isEmpty()) {
+                StringBuilder value = new StringBuilder(variableExpression.name().lexeme()).append("[");
+                for (int i = 0; i < newExpression.typeArguments().size(); i++) {
+                    if (i > 0) {
+                        value.append(", ");
+                    }
+                    value.append(newExpression.typeArguments().get(i).lexeme());
+                }
+                value.append("]");
+                return value.toString();
+            }
             return variableExpression.name().lexeme();
         }
         return null;
     }
 
     private boolean isAssignableNamedType(String expected, String actual) {
+        if (expected == null || actual == null) {
+            return false;
+        }
+
         if (expected.equals(actual)) {
             return true;
         }
 
-        ClassStatement actualClass = classes.get(actual);
+        ParsedNamedType expectedType = parseNamedType(expected);
+        ParsedNamedType actualType = parseNamedType(actual);
+
+        if (expectedType.baseName().equals(actualType.baseName())) {
+            if (expectedType.arguments().isEmpty() || actualType.arguments().isEmpty()) {
+                return true;
+            }
+            if (expectedType.arguments().size() != actualType.arguments().size()) {
+                return false;
+            }
+            for (int i = 0; i < expectedType.arguments().size(); i++) {
+                if (!isAssignableNamedType(expectedType.arguments().get(i), actualType.arguments().get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        ClassStatement actualClass = classes.get(actualType.baseName());
         while (actualClass != null && actualClass.superclass() != null) {
-            if (actualClass.superclass().lexeme().equals(expected)) {
+            if (actualClass.superclass().lexeme().equals(expectedType.baseName())) {
                 return true;
             }
             actualClass = classes.get(actualClass.superclass().lexeme());
@@ -872,6 +923,160 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         return false;
     }
+
+    private void validateFunctionTypeArguments(Token callSite, FunctionStatement functionDefinition, List<Token> typeArguments) {
+        int expected = functionDefinition.genericParameters().size();
+        if (typeArguments.isEmpty()) {
+            return;
+        }
+
+        if (expected != typeArguments.size()) {
+            TVScript.compileError(new CompileError(callSite,
+                    "Type argument count mismatch for function '" + functionDefinition.name().lexeme()
+                            + "': expected " + expected + ", got " + typeArguments.size() + "."));
+        }
+    }
+
+    private void validateGenericTypeConstraints(Token typeToken) {
+        ParsedNamedType declaredType = parseNamedType(typeToken.lexeme());
+        ClassStatement classStatement = classes.get(declaredType.baseName());
+        if (classStatement == null) {
+            return;
+        }
+
+        if (declaredType.arguments().isEmpty()) {
+            return;
+        }
+
+        validateTypeArgumentsAgainstParameters(typeToken, classStatement.name().lexeme(), classStatement.genericParameters(), declaredType.arguments());
+    }
+
+    private void validateClassTypeArguments(Token callSite, ClassStatement classStatement, List<Token> typeArguments) {
+        if (typeArguments.isEmpty()) {
+            return;
+        }
+
+        List<String> argumentNames = new ArrayList<>();
+        for (Token argument : typeArguments) {
+            argumentNames.add(argument.lexeme());
+        }
+        validateTypeArgumentsAgainstParameters(callSite, classStatement.name().lexeme(), classStatement.genericParameters(), argumentNames);
+    }
+
+    private void validateTypeArgumentsAgainstParameters(Token callSite, String ownerName, List<GenericParameter> parameters, List<String> argumentNames) {
+        if (parameters.size() != argumentNames.size()) {
+            TVScript.compileError(new CompileError(callSite,
+                    "Type argument count mismatch for '" + ownerName + "': expected " + parameters.size()
+                            + ", got " + argumentNames.size() + "."));
+            return;
+        }
+
+        for (int i = 0; i < parameters.size(); i++) {
+            GenericParameter parameter = parameters.get(i);
+            ParsedNamedType argumentType = parseNamedType(argumentNames.get(i));
+            String argumentBase = argumentType.baseName();
+
+            if (parameter.superclassConstraint() != null
+                    && !isAssignableNamedType(parameter.superclassConstraint().lexeme(), argumentBase)) {
+                TVScript.compileError(new CompileError(callSite,
+                        "Type argument '" + argumentNames.get(i) + "' violates constraint for '"
+                                + parameter.name().lexeme() + "'."));
+                continue;
+            }
+
+            for (Token traitConstraint : parameter.traitConstraints()) {
+                if (!classImplementsTrait(argumentBase, traitConstraint.lexeme())) {
+                    TVScript.compileError(new CompileError(callSite,
+                            "Type argument '" + argumentNames.get(i) + "' violates constraint for '"
+                                    + parameter.name().lexeme() + "': missing trait '"
+                                    + traitConstraint.lexeme() + "'."));
+                }
+            }
+        }
+    }
+
+    private boolean classImplementsTrait(String className, String traitName) {
+        ClassStatement current = classes.get(className);
+        while (current != null) {
+            for (Token traitToken : current.traits()) {
+                if (traitToken.lexeme().equals(traitName) || traitExtendsTrait(traitToken.lexeme(), traitName, new HashSet<>())) {
+                    return true;
+                }
+            }
+
+            if (current.superclass() == null) {
+                break;
+            }
+            current = classes.get(current.superclass().lexeme());
+        }
+        return false;
+    }
+
+    private boolean traitExtendsTrait(String traitName, String expectedTrait, Set<String> visited) {
+        if (!visited.add(traitName)) {
+            return false;
+        }
+
+        TraitStatement trait = traits.get(traitName);
+        if (trait == null) {
+            return false;
+        }
+
+        for (Token superTrait : trait.traits()) {
+            if (superTrait.lexeme().equals(expectedTrait)
+                    || traitExtendsTrait(superTrait.lexeme(), expectedTrait, visited)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private ParsedNamedType parseNamedType(String rawTypeName) {
+        int bracketStart = rawTypeName.indexOf('[');
+        if (bracketStart < 0 || !rawTypeName.endsWith("]")) {
+            return new ParsedNamedType(rawTypeName.trim(), List.of());
+        }
+
+        String baseName = rawTypeName.substring(0, bracketStart).trim();
+        String argumentsText = rawTypeName.substring(bracketStart + 1, rawTypeName.length() - 1).trim();
+        if (argumentsText.isEmpty()) {
+            return new ParsedNamedType(baseName, List.of());
+        }
+
+        return new ParsedNamedType(baseName, splitTopLevel(argumentsText));
+    }
+
+    private List<String> splitTopLevel(String value) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int depth = 0;
+
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '[') {
+                depth++;
+            } else if (c == ']') {
+                depth--;
+            }
+
+            if (c == ',' && depth == 0) {
+                parts.add(current.toString().trim());
+                current.setLength(0);
+                continue;
+            }
+
+            current.append(c);
+        }
+
+        if (!current.isEmpty()) {
+            parts.add(current.toString().trim());
+        }
+
+        return parts;
+    }
+
+    private record ParsedNamedType(String baseName, List<String> arguments) {}
 
     @Override
     public TokenType visitSuperExpression(SuperExpression expr) {
