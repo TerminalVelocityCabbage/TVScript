@@ -1228,6 +1228,20 @@ That syntax supports:
 - zero or more trait constraints in brackets
 - unconstrained generic parameters (for example `function id<T>(T value) -> T`)
 
+### Constraint aliases
+You can define reusable generic constraints with a top-level `constraint` declaration.
+```
+constraint Cageable = Animal[MakesSound]
+constraint AnimalOnly = Animal
+constraint AnimalWithNoExtraTraits = Animal[]
+constraint DeviceLike = [Named, MakesSound]
+
+class Cage<T ~ Cageable>:
+    T animal
+```
+
+Constraint aliases can be used anywhere inline generic constraints are allowed (classes, functions, methods, and types).
+
 For generic return types, use the generic type name directly.
 ```
 function passThrough<T ~ Animal>(T animal) -> T:

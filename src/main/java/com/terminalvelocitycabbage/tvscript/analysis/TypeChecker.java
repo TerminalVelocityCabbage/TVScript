@@ -27,6 +27,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final Map<String, ClassStatement> classes = new HashMap<>();
     private final Map<String, TraitStatement> traits = new HashMap<>();
     private final Map<String, TypeStatement> types = new HashMap<>();
+    private final Map<String, ConstraintStatement> constraints = new HashMap<>();
     private final Map<String, FunctionStatement> functions = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private int loopDepth = 0;
@@ -79,6 +80,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 traits.put(((TraitStatement) statement).name().lexeme(), (TraitStatement) statement);
             } else if (statement instanceof TypeStatement) {
                 types.put(((TypeStatement) statement).name().lexeme(), (TypeStatement) statement);
+            } else if (statement instanceof ConstraintStatement) {
+                constraints.put(((ConstraintStatement) statement).name().lexeme(), (ConstraintStatement) statement);
             }
         }
 
@@ -396,6 +399,20 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         endScope();
         currentType = previousType;
+        return null;
+    }
+
+    @Override
+    public Void visitConstraintStatement(ConstraintStatement stmt) {
+        if (stmt.superclassConstraint() != null) {
+            resolveConstraintReference(stmt.superclassConstraint(), new HashSet<>());
+        }
+        for (Token traitConstraint : stmt.traitConstraints()) {
+            if (!traits.containsKey(traitConstraint.lexeme())) {
+                TVScript.compileError(new CompileError(traitConstraint,
+                        "Unknown trait '" + traitConstraint.lexeme() + "' in constraint declaration."));
+            }
+        }
         return null;
     }
 
@@ -973,18 +990,22 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         for (int i = 0; i < parameters.size(); i++) {
             GenericParameter parameter = parameters.get(i);
+            EffectiveGenericConstraint effectiveConstraint = resolveGenericConstraints(parameter);
+            if (effectiveConstraint == null) {
+                continue;
+            }
             ParsedNamedType argumentType = parseNamedType(argumentNames.get(i));
             String argumentBase = argumentType.baseName();
 
-            if (parameter.superclassConstraint() != null
-                    && !isAssignableNamedType(parameter.superclassConstraint().lexeme(), argumentBase)) {
+            if (effectiveConstraint.superclassConstraint() != null
+                    && !isAssignableNamedType(effectiveConstraint.superclassConstraint().lexeme(), argumentBase)) {
                 TVScript.compileError(new CompileError(callSite,
                         "Type argument '" + argumentNames.get(i) + "' violates constraint for '"
                                 + parameter.name().lexeme() + "'."));
                 continue;
             }
 
-            for (Token traitConstraint : parameter.traitConstraints()) {
+            for (Token traitConstraint : effectiveConstraint.traitConstraints()) {
                 if (!classImplementsTrait(argumentBase, traitConstraint.lexeme())) {
                     TVScript.compileError(new CompileError(callSite,
                             "Type argument '" + argumentNames.get(i) + "' violates constraint for '"
@@ -994,6 +1015,65 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             }
         }
     }
+
+    private EffectiveGenericConstraint resolveGenericConstraints(GenericParameter parameter) {
+        List<Token> resolvedTraits = new ArrayList<>(parameter.traitConstraints());
+        Token resolvedSuperclass = null;
+        if (parameter.superclassConstraint() != null) {
+            EffectiveGenericConstraint resolvedConstraintReference =
+                    resolveConstraintReference(parameter.superclassConstraint(), new HashSet<>());
+            if (resolvedConstraintReference == null) {
+                return null;
+            }
+            resolvedSuperclass = resolvedConstraintReference.superclassConstraint();
+            resolvedTraits.addAll(resolvedConstraintReference.traitConstraints());
+        }
+        return new EffectiveGenericConstraint(resolvedSuperclass, resolvedTraits);
+    }
+
+    private EffectiveGenericConstraint resolveConstraintAlias(ConstraintStatement constraint, Set<String> visited) {
+        if (constraint == null) {
+            return null;
+        }
+
+        String name = constraint.name().lexeme();
+        if (!visited.add(name)) {
+            TVScript.compileError(new CompileError(constraint.name(),
+                    "Circular constraint reference detected for '" + name + "'."));
+            return null;
+        }
+
+        List<Token> resolvedTraits = new ArrayList<>(constraint.traitConstraints());
+        Token resolvedSuperclass = null;
+        if (constraint.superclassConstraint() != null) {
+            EffectiveGenericConstraint resolvedParent =
+                    resolveConstraintReference(constraint.superclassConstraint(), visited);
+            if (resolvedParent == null) {
+                return null;
+            }
+            resolvedSuperclass = resolvedParent.superclassConstraint();
+            resolvedTraits.addAll(resolvedParent.traitConstraints());
+        }
+
+        return new EffectiveGenericConstraint(resolvedSuperclass, resolvedTraits);
+    }
+
+    private EffectiveGenericConstraint resolveConstraintReference(Token constraintOrClassName, Set<String> visited) {
+        String name = constraintOrClassName.lexeme();
+        ConstraintStatement constraint = constraints.get(name);
+        if (constraint == null) {
+            if (!classes.containsKey(name)) {
+                TVScript.compileError(new CompileError(constraintOrClassName,
+                        "Unknown class or constraint '" + name + "'."));
+                return null;
+            }
+            return new EffectiveGenericConstraint(constraintOrClassName, List.of());
+        }
+
+        return resolveConstraintAlias(constraint, visited);
+    }
+
+    private record EffectiveGenericConstraint(Token superclassConstraint, List<Token> traitConstraints) {}
 
     private boolean classImplementsTrait(String className, String traitName) {
         ClassStatement current = classes.get(className);

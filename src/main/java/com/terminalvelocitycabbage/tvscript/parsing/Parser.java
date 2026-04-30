@@ -62,6 +62,7 @@ public class Parser {
             if (match(CLASS)) return classDeclaration();
             if (match(TRAIT)) return traitDeclaration();
             if (match(TYPE)) return typeDeclaration();
+            if (match(CONSTRAINT)) return constraintDeclaration();
             if (match(MAIN)) return mainDeclaration();
             if (match(FUNCTION)) {
                 return functionDeclaration("function");
@@ -373,6 +374,35 @@ public class Parser {
         }
 
         return new FunctionStatement(keyword, parameters, null, body, List.of(), false, false);
+    }
+
+    private Statement constraintDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect constraint name.");
+        consume(EQUAL, "Expect '=' after constraint name.");
+
+        Token superclassConstraint = null;
+        List<Token> traitConstraints = new ArrayList<>();
+
+        if (match(LEFT_BRACKET)) {
+            if (!check(RIGHT_BRACKET)) {
+                do {
+                    traitConstraints.add(consume(IDENTIFIER, "Expect trait name."));
+                } while (match(COMMA));
+            }
+            consume(RIGHT_BRACKET, "Expect ']' after trait constraints.");
+        } else {
+            superclassConstraint = consume(IDENTIFIER, "Expect class or constraint name.");
+            if (match(LEFT_BRACKET)) {
+                if (!check(RIGHT_BRACKET)) {
+                    do {
+                        traitConstraints.add(consume(IDENTIFIER, "Expect trait name."));
+                    } while (match(COMMA));
+                }
+                consume(RIGHT_BRACKET, "Expect ']' after trait constraints.");
+            }
+        }
+
+        return new ConstraintStatement(name, superclassConstraint, traitConstraints);
     }
 
     private Statement classDeclaration() {
@@ -1480,6 +1510,7 @@ public class Parser {
             if (previous().type() == NEWLINE) return;
             switch (peek().type()) {
                 case CLASS:
+                case CONSTRAINT:
                 case FUNCTION:
                 case IMPORT:
                 case VAR:

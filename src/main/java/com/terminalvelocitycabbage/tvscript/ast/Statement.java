@@ -31,6 +31,7 @@ public interface Statement {
         default R visitClassStatement(ClassStatement stmt) { return null; }
         default R visitTraitStatement(TraitStatement stmt) { return null; }
         default R visitTypeStatement(TypeStatement stmt) { return null; }
+        default R visitConstraintStatement(ConstraintStatement stmt) { return null; }
     }
 
     /**
@@ -130,6 +131,13 @@ public interface Statement {
     }
 
     record GenericParameter(Token name, Token superclassConstraint, List<Token> traitConstraints) {}
+
+    record ConstraintStatement(Token name, Token superclassConstraint, List<Token> traitConstraints) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitConstraintStatement(this);
+        }
+    }
 
     record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, List<GenericParameter> genericParameters, boolean isOverride, boolean isDefault) implements Statement {
         @Override

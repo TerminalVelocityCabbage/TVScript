@@ -253,4 +253,74 @@ class GenericsTest {
         assertTrue(error.getMessage().toLowerCase().contains("map"));
         assertTrue(error.getMessage().toLowerCase().contains("integer"));
     }
+
+    @Test
+    void testConstraintAliasDeclarationFormsAndUsage() {
+        run("""
+            trait Named:
+                getName() -> string
+
+            trait MakesSound:
+                makeSound()
+
+            class Animal:
+                string name
+                constructor(string name):
+                    this.name = name
+
+            class Dog[Named, MakesSound] < Animal:
+                constructor(string name):
+                    super(name: name)
+
+                override getName() -> string:
+                    return this.name
+
+                override makeSound():
+                    print "woof"
+
+            constraint AnimalWithSound = Animal[MakesSound]
+            constraint AnimalOnly = Animal
+            constraint AnimalOpenTraits = Animal[]
+            constraint TraitsOnly = [Named, MakesSound]
+
+            function callSound<T ~ AnimalWithSound>(T value):
+                value.makeSound()
+
+            function printAnimalName<T ~ AnimalOnly>(T value):
+                print value.name
+
+            function printAnimalNameOpen<T ~ AnimalOpenTraits>(T value):
+                print value.name
+
+            function describeByTraits<T ~ TraitsOnly>(T value):
+                print value.getName()
+                value.makeSound()
+
+            Dog d = new Dog(name: "Rex")
+            callSound(value: d)
+            printAnimalName(value: d)
+            printAnimalNameOpen(value: d)
+            describeByTraits(value: d)
+            """);
+
+        assertEquals("woof\nRex\nRex\nRex\nwoof\n", stdout());
+    }
+
+    @Test
+    void testUnknownConstraintInGenericBoundIsCompileError() {
+        CompileError error = assertThrows(CompileError.class, () -> run("""
+            class Animal:
+                constructor():
+                    pass
+
+            class Cage<T ~ MissingConstraint>:
+                T animal
+                constructor(T animal):
+                    this.animal = animal
+
+            Cage<Animal> c = new Cage<Animal>(animal: new Animal())
+            """));
+
+        assertTrue(error.getMessage().contains("Unknown class or constraint 'MissingConstraint'"));
+    }
 }
