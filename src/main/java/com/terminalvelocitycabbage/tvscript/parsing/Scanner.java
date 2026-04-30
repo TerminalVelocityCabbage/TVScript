@@ -183,6 +183,9 @@ public class Scanner {
             case '&':
                 addToken(TokenType.AMPERSAND);
                 break;
+            case '~':
+                addToken(TokenType.TILDE);
+                break;
             case '?': addToken(TokenType.QUESTION); break;
             case '@': addToken(TokenType.AT); break;
             case '!':

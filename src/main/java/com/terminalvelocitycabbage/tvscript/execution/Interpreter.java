@@ -1072,13 +1072,23 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     private ParsedRuntimeType parseRuntimeType(String typeName) {
-        int bracketStart = typeName.indexOf('[');
-        if (bracketStart < 0 || !typeName.endsWith("]")) {
+        int angleStart = typeName.indexOf('<');
+        int squareStart = typeName.indexOf('[');
+
+        int bracketStart;
+        int endIndex;
+        if (angleStart >= 0 && typeName.endsWith(">")) {
+            bracketStart = angleStart;
+            endIndex = typeName.length() - 1;
+        } else if (squareStart >= 0 && typeName.endsWith("]")) {
+            bracketStart = squareStart;
+            endIndex = typeName.length() - 1;
+        } else {
             return new ParsedRuntimeType(typeName.trim(), List.of());
         }
 
         String baseName = typeName.substring(0, bracketStart).trim();
-        String argumentsText = typeName.substring(bracketStart + 1, typeName.length() - 1).trim();
+        String argumentsText = typeName.substring(bracketStart + 1, endIndex).trim();
         if (argumentsText.isEmpty()) {
             return new ParsedRuntimeType(baseName, List.of());
         }
@@ -1097,9 +1107,9 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         for (int i = 0; i < value.length(); i++) {
             char current = value.charAt(i);
-            if (current == '[') {
+            if (current == '<' || current == '[') {
                 depth++;
-            } else if (current == ']') {
+            } else if (current == '>' || current == ']') {
                 depth--;
             }
 

@@ -382,19 +382,17 @@ public class Parser {
         Token superclass = null;
         List<Token> traits = new ArrayList<>();
 
-        if (match(LESS)) {
-            if (match(IDENTIFIER)) {
-                superclass = previous();
-            }
-
-            if (match(LEFT_BRACKET)) {
+        if (match(LEFT_BRACKET)) {
+            if (!check(RIGHT_BRACKET)) {
                 do {
                     traits.add(consume(IDENTIFIER, "Expect trait name."));
                 } while (match(COMMA));
-                consume(RIGHT_BRACKET, "Expect ']' after traits.");
-            } else if (superclass == null) {
-                throw error(peek(), "Expect superclass or trait list after '<'.");
             }
+            consume(RIGHT_BRACKET, "Expect ']' after traits.");
+        }
+
+        if (match(LESS)) {
+            superclass = consume(IDENTIFIER, "Expect superclass name after '<'.");
         }
 
         consume(COLON, "Expect ':' before class body.");
@@ -659,36 +657,86 @@ public class Parser {
     }
 
     private List<GenericParameter> parseGenericParameters() {
-        if (!match(LEFT_BRACKET)) {
+        if (!check(LESS) || !looksLikeGenericParameterDeclaration()) {
             return List.of();
         }
+        consume(LESS, "Expect '<' before generic type parameters.");
 
         List<GenericParameter> genericParameters = new ArrayList<>();
-        if (!check(RIGHT_BRACKET)) {
+        if (!check(GREATER)) {
             do {
                 Token parameterName = consume(IDENTIFIER, "Expect generic type parameter name.");
                 Token superclassConstraint = null;
                 List<Token> traitConstraints = new ArrayList<>();
 
-                if (match(LESS)) {
-                    superclassConstraint = consume(IDENTIFIER, "Expect superclass constraint after '<'.");
-                    while (match(AMPERSAND)) {
-                        traitConstraints.add(consume(IDENTIFIER, "Expect trait constraint after '&'."));
+                if (match(TILDE)) {
+                    if (check(IDENTIFIER)) {
+                        superclassConstraint = advance();
                     }
+
+                    if (match(LEFT_BRACKET)) {
+                        if (!check(RIGHT_BRACKET)) {
+                            do {
+                                traitConstraints.add(consume(IDENTIFIER, "Expect trait constraint name."));
+                            } while (match(COMMA));
+                        }
+                        consume(RIGHT_BRACKET, "Expect ']' after generic trait constraints.");
+                    } else if (superclassConstraint == null) {
+                        throw error(peek(), "Expect superclass constraint or trait constraint list after '~'.");
+                    }
+                } else if (match(AMPERSAND)) {
+                    throw error(previous(), "Use '~' and bracketed trait constraints for generic constraints.");
                 }
 
                 genericParameters.add(new GenericParameter(parameterName, superclassConstraint, traitConstraints));
             } while (match(COMMA));
         }
 
-        consume(RIGHT_BRACKET, "Expect ']' after generic type parameters.");
+        consume(GREATER, "Expect '>' after generic type parameters.");
         return genericParameters;
+    }
+
+    private boolean looksLikeGenericParameterDeclaration() {
+        if (!check(LESS)) {
+            return false;
+        }
+
+        int depth = 0;
+        int index = current;
+        while (index < tokens.size()) {
+            TokenType type = tokens.get(index).type();
+            if (type == LESS) {
+                depth++;
+                index++;
+                continue;
+            }
+            if (type == GREATER) {
+                depth--;
+                index++;
+                if (depth == 0) {
+                    if (index >= tokens.size()) {
+                        return false;
+                    }
+                    TokenType next = tokens.get(index).type();
+                    return next == LEFT_PAREN || next == LEFT_BRACKET || next == LESS || next == COLON;
+                }
+                continue;
+            }
+            if (depth > 0 && (type == COLON || type == NEWLINE || type == EOF)) {
+                return false;
+            }
+            index++;
+        }
+        return false;
     }
 
     private Token consumeType(String message) {
         if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER, LIST, SET, MAP)) {
             Token type = previous();
-            if (match(LEFT_BRACKET)) {
+            if ((type.type() == LIST || type.type() == SET || type.type() == MAP) && match(LEFT_BRACKET)) {
+                return parseParameterizedType(type);
+            }
+            if (type.type() == IDENTIFIER && match(LESS)) {
                 return parseParameterizedType(type);
             }
             return type;
@@ -697,7 +745,9 @@ public class Parser {
     }
 
     private Token parseParameterizedType(Token baseType) {
-        StringBuilder name = new StringBuilder(baseType.lexeme()).append("[");
+        boolean isCollectionType = baseType.type() == MAP || baseType.type() == LIST || baseType.type() == SET;
+        TokenType closingToken = isCollectionType ? RIGHT_BRACKET : GREATER;
+        StringBuilder name = new StringBuilder(baseType.lexeme()).append(isCollectionType ? "[" : "<");
 
         if (baseType.type() == MAP) {
             Token keyType = consumeType("Expect map key type.");
@@ -711,7 +761,7 @@ public class Parser {
                 throw error(previous(), "Collection types accept exactly one type argument.");
             }
         } else {
-            if (!check(RIGHT_BRACKET)) {
+            if (!check(closingToken)) {
                 boolean first = true;
                 do {
                     Token argumentType = consumeType("Expect type argument.");
@@ -724,8 +774,13 @@ public class Parser {
             }
         }
 
-        consume(RIGHT_BRACKET, "Expect ']' after type arguments.");
-        name.append("]");
+        if (isCollectionType) {
+            consume(RIGHT_BRACKET, "Expect ']' after type arguments.");
+            name.append("]");
+        } else {
+            consume(GREATER, "Expect '>' after type arguments.");
+            name.append(">");
+        }
         return new Token(baseType.type(), name.toString(), null, baseType.line());
     }
 
@@ -951,15 +1006,16 @@ public class Parser {
                     Token name = consume(IDENTIFIER, "Expect property name after '.'.");
                     expr = new GetExpression(expr, name);
                 }
-            } else if (check(LEFT_BRACKET)) {
+            } else if (check(LESS)) {
                 List<Token> typeArguments = tryParseTypeArgumentsForCall();
                 if (typeArguments != null) {
                     consume(LEFT_PAREN, "Expect '(' after type arguments.");
                     expr = finishCall(expr, false, typeArguments);
                 } else {
-                    consume(LEFT_BRACKET, "Expect '[' before index access.");
-                    expr = finishIndex(expr, previous());
+                    break;
                 }
+            } else if (match(LEFT_BRACKET)) {
+                expr = finishIndex(expr, previous());
             } else {
                 break;
             }
@@ -1132,19 +1188,19 @@ public class Parser {
             return null;
         }
 
-        consume(LEFT_BRACKET, "Expect '[' before type arguments.");
+        consume(LESS, "Expect '<' before type arguments.");
         List<Token> typeArguments = new ArrayList<>();
-        if (!check(RIGHT_BRACKET)) {
+        if (!check(GREATER)) {
             do {
                 typeArguments.add(consumeType("Expect type argument."));
             } while (match(COMMA));
         }
-        consume(RIGHT_BRACKET, "Expect ']' after type arguments.");
+        consume(GREATER, "Expect '>' after type arguments.");
         return typeArguments;
     }
 
     private boolean looksLikeTypeArgumentListForCall() {
-        if (!check(LEFT_BRACKET)) {
+        if (!check(LESS)) {
             return false;
         }
 
@@ -1152,12 +1208,12 @@ public class Parser {
         int index = current;
         while (index < tokens.size()) {
             TokenType type = tokens.get(index).type();
-            if (type == LEFT_BRACKET) {
+            if (type == LESS) {
                 depth++;
                 index++;
                 continue;
             }
-            if (type == RIGHT_BRACKET) {
+            if (type == GREATER) {
                 depth--;
                 index++;
                 if (depth == 0) {
@@ -1207,19 +1263,30 @@ public class Parser {
         }
 
         int index = startIndex + 1;
-        if (index < tokens.size() && tokens.get(index).type() == LEFT_BRACKET) {
-            int depth = 1;
+        if (index < tokens.size() && (tokens.get(index).type() == LESS || tokens.get(index).type() == LEFT_BRACKET)) {
+            int angleDepth = 0;
+            int squareDepth = 0;
             index++;
-            while (index < tokens.size() && depth > 0) {
+            if (tokens.get(startIndex + 1).type() == LESS) {
+                angleDepth = 1;
+            } else {
+                squareDepth = 1;
+            }
+
+            while (index < tokens.size() && (angleDepth > 0 || squareDepth > 0)) {
                 TokenType type = tokens.get(index).type();
-                if (type == LEFT_BRACKET) {
-                    depth++;
+                if (type == LESS) {
+                    angleDepth++;
+                } else if (type == GREATER) {
+                    angleDepth--;
+                } else if (type == LEFT_BRACKET) {
+                    squareDepth++;
                 } else if (type == RIGHT_BRACKET) {
-                    depth--;
+                    squareDepth--;
                 }
                 index++;
             }
-            if (depth != 0) {
+            if (angleDepth != 0 || squareDepth != 0) {
                 return -1;
             }
         }

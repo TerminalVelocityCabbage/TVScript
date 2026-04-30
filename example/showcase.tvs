@@ -110,7 +110,7 @@ trait Flies:
     fly()
 
 // Inheritance
-class Dog < Animal [EmitsSound, Flies]:
+class Dog[EmitsSound, Flies] < Animal:
 
     constructor(string breed):
         super(name: breed) // Use super to call parent constructors

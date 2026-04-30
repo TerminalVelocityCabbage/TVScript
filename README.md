@@ -158,7 +158,7 @@ trait Flies:
     fly()
 
 // Inheritance
-class Dog < Animal [EmitsSound, Flies]:
+class Dog[EmitsSound, Flies] < Animal:
 
     constructor(string breed):
         super(name: breed) // Use super to call parent constructors
@@ -281,7 +281,8 @@ The following operators are supported:
 | `x--` | Decrement |
 | `x .. y` | Range |
 | `|` | Separator (e.g., in maps or match patterns) |
-| `[` `]` | Generic types or indexing |
+| `<` `>` | Generic type parameters and arguments |
+| `[` `]` | Indexing |
 | `{` `}` | String interpolation or block-like data |
 | `:` | Block definition |
 | `,` | Separator |
@@ -948,9 +949,9 @@ trait CanDie:
 trait Animal < [EmitsSound, CanDie]:
     eat()
 ```
-Classes and types can implement any number of traits that are applicable to that class or type. A class can only extend one other class. All methods defined in all traits implemented by a class MUST be defined in the class. Exceptions to this are default methods of the trait. You only need to override those if you want to.
+Classes and types can implement any number of traits that are applicable to that class or type. A class can only extend one other class. For classes, put traits immediately after the class name and put the optional superclass after `<`. All methods defined in all traits implemented by a class MUST be defined in the class. Exceptions to this are default methods of the trait. You only need to override those if you want to.
 ```
-class Player < Entity [EmitsSound, CanDie]:
+class Player[EmitsSound, CanDie] < Entity:
     
     //Even though there was no default functionality, you still need to override the parent method.
     override playSound():
@@ -1200,28 +1201,41 @@ Generics let you define reusable behavior without hard-coding one concrete type.
 ### Generic functions
 You can use either inferred type arguments or explicit type arguments.
 ```
-function identity[T](T value) -> T:
+function identity<T>(T value) -> T:
     return value
 
 print identity(value: 7) // inferred T = integer
-print identity[decimal](value: 2.5) // explicit T = decimal
-print identity[string](value: "hello")
+print identity<decimal>(value: 2.5) // explicit T = decimal
+print identity<string>(value: "hello")
 ```
 
 ### Generic constraints
-Use `<` for superclass constraint and `&` for additional trait constraints.
+Use `~` for generic constraints. Trait constraints must use bracketed form.
 ```
-function trigger[T < Animal & MakesSound](T animal):
+function trigger<T ~ Animal>(T animal):
+    print animal.name
+
+function trigger<T ~ Animal[MakesSound]>(T animal):
     animal.makeSound()
     print animal.name
+
+function triggerDevice<T ~ [MakesSound]>(T device):
+    device.makeSound()
 ```
 
 That syntax supports:
 - one optional superclass constraint
-- zero or more trait constraints
-- unconstrained generic parameters (for example `function id[T](T value) -> T`)
+- zero or more trait constraints in brackets
+- unconstrained generic parameters (for example `function id<T>(T value) -> T`)
 
-Now that covers the syntax, lets use a full class example:
+For generic return types, use the generic type name directly.
+```
+function passThrough<T ~ Animal>(T animal) -> T:
+    animal.makeSound()
+    return animal
+```
+
+Now that covers the syntax, lets use a full class example. If a class has both generics and traits, generics always come first:
 ```
 trait MakesSound:
   string makeSound()
@@ -1231,19 +1245,19 @@ class Animal:
     constructor(string name):
         this.name = name
   
-class Dog < Animal:
+class Dog[MakesSound] < Animal:
     constructor(string dogName): super(name: dogName)
     override makeSound(): bark()
     bark(): print "woof"
   
-class Cat < Animal:
+class Cat[MakesSound] < Animal:
     constructor(string catName): super(name: catName)
     override makeSound(): meow()
     meow(): print "meow"
 ```
 Let's implement a generic cage class which can house any animal that makes sounds:
 ```
-class Cage[T < Animal & MakesSound]:
+class Cage<T ~ Animal[MakesSound]>:
     
     T animal
     
@@ -1259,7 +1273,7 @@ Any animal that makes a sound can be put in the cage, and you can safely use mem
 ### Generic collections
 Collections support parameterized element/key/value types and are enforced at runtime for mutation operations.
 ```
-function returnOddIndexedItems[T](list[T] items):
+function returnOddIndexedItems<T>(list[T] items):
     list[T] oddIndexedItems = new list[]
     for [integer i] in 0..items.size - 1:
         if i % 2 != 0: oddIndexedItems.add(items[i])
@@ -1280,7 +1294,7 @@ Generic misuse is validated with clear diagnostics:
 ### Current implementation notes
 - Generic declarations and type arguments are supported for functions, classes, variable type annotations, and collection types.
 - Type argument inference is supported from call/new arguments.
-- Explicit type arguments are supported for calls/new (`fn[T](...)`, `new Box[T](...)`).
+- Explicit type arguments are supported for calls/new (`fn<T>(...)`, `new Box<T>(...)`).
 
 ## Errors and handling them
 Errors are a way to signal that something went wrong. Sometimes this is expected, and sometimes it is not. When an error occurs, it is important to handle it in a way that makes sense for your program. There are two main ways to handle errors: using try-catch blocks or using error handling functions. First lets look at how to define your own error types and throw them when something goes wrong.
@@ -1340,15 +1354,15 @@ on PlayerJoinedEvent(Player player):
     
     print "Player {player.name} joined the server"
 ```
-Note that the return type of an asynchronous function is a special `Task[T]` type. So when a function is declared as asynchronous, the return type is automatically boxed into the `Task[T]` type. When you use the await keyword the value is automatically unboxed into the type of the function. This means you can do this:
+Note that the return type of an asynchronous function is a special `Task<T>` type. So when a function is declared as asynchronous, the return type is automatically boxed into the `Task<T>` type. When you use the await keyword the value is automatically unboxed into the type of the function. This means you can do this:
 ```
 on PlayerJoinedEvent(Player player):
-    Task[PlayerData] task = getPlayerDataFromDatabase(id: player.id)
+    Task<PlayerData> task = getPlayerDataFromDatabase(id: player.id)
     PlayerData playerData = await task
     
     print "Player {player.name} joined the server"
 ```
-If a task is never awaited, you can use the methods defined on `Task[T]` like any other class.
+If a task is never awaited, you can use the methods defined on `Task<T>` like any other class.
 
 If there is no return value, or you want to just fire and forget the task, you can use the `launch` keyword instead of `await`. This will still execute the function in a non-blocking manner but doesn't suspend the function or anything like that.
 ```

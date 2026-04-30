@@ -102,7 +102,7 @@ public class InheritanceTraitTest {
                     if health <= 0:
                         print "dead"
 
-            class Actor < [EmitsSound, CanDie]:
+            class Actor[EmitsSound, CanDie]:
                 constructor():
                     pass
                 
@@ -127,7 +127,7 @@ public class InheritanceTraitTest {
             trait B < [A]:
                 b()
             
-            class C < [B]:
+            class C[B]:
                 constructor():
                     pass
                 override a():
@@ -198,7 +198,7 @@ public class InheritanceTraitTest {
             class A:
                 constructor():
                     pass
-            class B < A [T]:
+            class B[T] < A:
                 constructor():
                     pass
             
@@ -226,7 +226,7 @@ public class InheritanceTraitTest {
                 default m(): print "A"
             trait B:
                 default m(): print "B"
-            class C < [A, B]:
+            class C[A, B]:
                 constructor(): pass
             """;
         String output = run(source);
@@ -238,7 +238,7 @@ public class InheritanceTraitTest {
         String source = """
             trait A:
                 m()
-            class C < [A]:
+            class C[A]:
                 constructor(): pass
             """;
         String output = run(source);
@@ -252,7 +252,7 @@ public class InheritanceTraitTest {
                 const integer MAX_HP = 100
                 const string NAME = "Base"
             
-            class Actor < [HasConfig]:
+            class Actor[HasConfig]:
                 constructor(): pass
                 
                 printConfig():
@@ -274,7 +274,7 @@ public class InheritanceTraitTest {
             trait HasConfig:
                 const integer MAX_HP = 100
             
-            class Actor < [HasConfig]:
+            class Actor[HasConfig]:
                 constructor(): pass
                 
                 printConfig():

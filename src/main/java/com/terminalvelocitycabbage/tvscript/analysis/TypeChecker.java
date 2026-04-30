@@ -871,14 +871,14 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private String inferNamedType(Expression initializer) {
         if (initializer instanceof NewExpression newExpression && newExpression.callee() instanceof VariableExpression variableExpression) {
             if (!newExpression.typeArguments().isEmpty()) {
-                StringBuilder value = new StringBuilder(variableExpression.name().lexeme()).append("[");
+                StringBuilder value = new StringBuilder(variableExpression.name().lexeme()).append("<");
                 for (int i = 0; i < newExpression.typeArguments().size(); i++) {
                     if (i > 0) {
                         value.append(", ");
                     }
                     value.append(newExpression.typeArguments().get(i).lexeme());
                 }
-                value.append("]");
+                value.append(">");
                 return value.toString();
             }
             return variableExpression.name().lexeme();
@@ -1033,13 +1033,23 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private ParsedNamedType parseNamedType(String rawTypeName) {
-        int bracketStart = rawTypeName.indexOf('[');
-        if (bracketStart < 0 || !rawTypeName.endsWith("]")) {
+        int angleStart = rawTypeName.indexOf('<');
+        int squareStart = rawTypeName.indexOf('[');
+
+        int bracketStart;
+        int endIndex;
+        if (angleStart >= 0 && rawTypeName.endsWith(">")) {
+            bracketStart = angleStart;
+            endIndex = rawTypeName.length() - 1;
+        } else if (squareStart >= 0 && rawTypeName.endsWith("]")) {
+            bracketStart = squareStart;
+            endIndex = rawTypeName.length() - 1;
+        } else {
             return new ParsedNamedType(rawTypeName.trim(), List.of());
         }
 
         String baseName = rawTypeName.substring(0, bracketStart).trim();
-        String argumentsText = rawTypeName.substring(bracketStart + 1, rawTypeName.length() - 1).trim();
+        String argumentsText = rawTypeName.substring(bracketStart + 1, endIndex).trim();
         if (argumentsText.isEmpty()) {
             return new ParsedNamedType(baseName, List.of());
         }
@@ -1054,9 +1064,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
-            if (c == '[') {
+            if (c == '<' || c == '[') {
                 depth++;
-            } else if (c == ']') {
+            } else if (c == '>' || c == ']') {
                 depth--;
             }
 
