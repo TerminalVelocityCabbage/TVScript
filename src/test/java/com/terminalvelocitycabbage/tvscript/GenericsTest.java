@@ -105,6 +105,70 @@ class GenericsTest {
     }
 
     @Test
+    void testGenericConstraintWithTraitsOnly() {
+        run("""
+            trait Named:
+                getName() -> string
+
+            trait MakesSound:
+                makeSound()
+
+            class Dog [Named, MakesSound]:
+                string name
+
+                constructor(string name):
+                    this.name = name
+
+                override getName() -> string:
+                    return this.name
+
+                override makeSound():
+                    print "woof"
+
+            function describe[T < Named & MakesSound](T animal):
+                print animal.getName()
+                animal.makeSound()
+
+            Dog dog = new Dog(name: "Rex")
+            describe(animal: dog)
+            """);
+
+        assertEquals("Rex\nwoof\n", stdout());
+    }
+
+    @Test
+    void testMultipleGenericParametersInClassAndFunction() {
+        run("""
+            class Pair[L, R]:
+                L left
+                R right
+
+                constructor(L left, R right):
+                    this.left = left
+                    this.right = right
+
+                getLeft() -> L:
+                    return this.left
+
+                getRight() -> R:
+                    return this.right
+
+            function flip[A, B](Pair[A, B] pair) -> Pair[B, A]:
+                return new Pair[B, A](left: pair.getRight(), right: pair.getLeft())
+
+            Pair[integer, string] original = new Pair(left: 7, right: "days")
+            Pair[string, integer] flipped = flip(pair: original)
+
+            print original.getLeft()
+            print original.getRight()
+            print flipped.getLeft()
+            print flipped.getRight()
+            """);
+
+        assertEquals("7\ndays\ndays\n7\n", stdout());
+    }
+
+    @Test
     void testGenericFunctionTypeArityMismatchIsCompileError() {
         CompileError error = assertThrows(CompileError.class, () -> run("""
             function identity[T](T value) -> T:
@@ -150,6 +214,23 @@ class GenericsTest {
     }
 
     @Test
+    void testGenericClassTypeArityMismatchIsCompileError() {
+        CompileError error = assertThrows(CompileError.class, () -> run("""
+            class Pair[L, R]:
+                L left
+                R right
+
+                constructor(L left, R right):
+                    this.left = left
+                    this.right = right
+
+            Pair[integer] broken = new Pair[integer](left: 1, right: 2)
+            """));
+
+        assertTrue(error.getMessage().toLowerCase().contains("type argument"));
+    }
+
+    @Test
     void testListGenericRuntimeMutationCheck() {
         RuntimeError error = assertThrows(RuntimeError.class, () -> run("""
             list[integer] values = new list[](1, 2)
@@ -158,6 +239,18 @@ class GenericsTest {
             """));
 
         assertTrue(error.getMessage().toLowerCase().contains("list"));
+        assertTrue(error.getMessage().toLowerCase().contains("integer"));
+    }
+
+    @Test
+    void testMapGenericRuntimeMutationCheck() {
+        RuntimeError error = assertThrows(RuntimeError.class, () -> run("""
+            map[string | integer] counts = new map[|]("ok": 1)
+            var dynamicCounts = counts
+            dynamicCounts["bad"] = "oops"
+            """));
+
+        assertTrue(error.getMessage().toLowerCase().contains("map"));
         assertTrue(error.getMessage().toLowerCase().contains("integer"));
     }
 }
