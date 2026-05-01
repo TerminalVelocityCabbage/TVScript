@@ -114,7 +114,7 @@ function doRandomThings(integer a, integer b = 20):
     // Lists are cool
     list[integer] numbers = new list[] //Empty list
     list[integer] filled = new list[](1, 2, 3)
-    integer foo = filled[0] //sets a to 1
+    integer foo = filled[0] //sets foo to 1
     // Multi dimensional lists are also supported
     list[integer][integer] twoDimensional = new list[][]
 
@@ -172,7 +172,7 @@ class Dog[EmitsSound, Flies] < Animal:
     override fly():
         dispatch DeathEvent(deathMessage: "dogs can't fly")
 
-@EditorHint("This is a hint that appears in the editor")
+@EditorHint(hint: "This is a hint that appears in the editor")
 event DeathEvent:
     string deathMessage
     Color messageColor = Color.RED
