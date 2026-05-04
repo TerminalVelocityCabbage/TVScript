@@ -377,28 +377,6 @@ import some.package.here: [ModInfo, OtherThing as AliasThing, helperFunction]
 
 Trailing commas are not allowed in either import block format.
 
-### Native function calls
-Native functions must be called with the `native` keyword.
-```
-print native abs(n: -10)
-print native clock()
-```
-Regular function calls must not use `native`.
-
-### Embedding native functions
-TVScript does not automatically configure global native functions anymore. Embedders must build and provide their own global environment.
-```java
-Environment globals = new Environment.GlobalBuilder()
-    .withNativeFunction(NativeFunctions.CLOCK)
-    .withNativeFunction(NativeFunctions.ABS)
-    .build();
-
-Interpreter interpreter = new Interpreter(globals);
-```
-
-Native function signatures should use TVScript types so tooling and runtime errors can report intended signatures clearly, for example:
-`native abs(decimal n) -> decimal`
-
 ## Comments
 Anything after a `//` is a comment. Comments are ignored by the compiler and are only for human readability.
 ```
@@ -853,7 +831,7 @@ type vector2d: //type names are usually lowercase to differentiate them from cla
   decimal x
   decimal y
 ```
-By itself, this definition doesn't provide many benefits aside from how they can be initialized. You can initialize a type like this:
+You can initialize a type like this:
 ```
 vector2d v = new vector2d(x: 10, y: 10)
 ```
@@ -936,7 +914,7 @@ print entity.health //error, undefined field (Entity does not have a field named
 ```
 
 ## Traits
-Traits are like classes, but they just define some behaviour that is expected of implementing classes. They usually don't have any behaviour of their own, but might. Traits can also extend other traits.
+Traits define common behavior between implementing classes (or other traits). They allow you to define common methods, or functions that all classes with this trait implement (useful for categorizing different classes by their common parts)
 ```
 trait EmitsSound:
   playSound()
@@ -949,7 +927,7 @@ trait CanDie:
 trait Animal < [EmitsSound, CanDie]:
     eat()
 ```
-Classes and types can implement any number of traits that are applicable to that class or type. A class can only extend one other class. For classes, put traits immediately after the class name and put the optional superclass after `<`. All methods defined in all traits implemented by a class MUST be defined in the class. Exceptions to this are default methods of the trait. You only need to override those if you want to.
+Unlike Classes where you can only extend one, Classes and types can implement any number of traits. For classes, put traits immediately after the class name and put the optional superclass after `<`. All methods defined in all traits implemented by a class MUST be defined in the class. Exceptions to this are default methods of the trait. You only need to override those if you want to.
 ```
 class Player[EmitsSound, CanDie] < Entity:
     
@@ -993,7 +971,7 @@ if billy is Dude -> dudeBilly: //Creates a new variable dudeBilly of type Dude
 ```
 This works the same for traits with the 'has' operator:
 ```
-class SomeThing < [ATrait]:
+class SomeThing[ATrait]:
     ...
     
 function checkHasTrait(object obj) -> boolean:
@@ -1489,3 +1467,197 @@ print myCounter.count // prints 1
 reassignCounter(c: myCounter)
 print myCounter.count // still prints 1
 ```
+
+## Native functions and Classes
+Native functions and classes allow you to bind some script logic to native java functionality, usually done with the native keyword. The design methodology for native functionality is to allow most of the configuration to be done on the java side as a library to the global environment rather than most of the work being done in TVScript. This is because as a language designed to be embedded into java programs, we expect the maintainers of these programs to also know java.
+
+### Native functions
+TVScript does not automatically configure global native functions. Embedders must build and provide their own global environment. Below is an example of two native functions, clock and abs (absolute value)
+```java
+public static final TVScriptNativeFunction CLOCK = new TVScriptNativeFunction(
+        "clock", //The name of the native function
+        List.of(), //A list of expected arguments (empty here)
+        TokenType.TYPE_DECIMAL, //The return type of this function
+        args -> (double) System.currentTimeMillis() //The native function to be called when the clock function is called in tvscript
+);
+
+public static final TVScriptNativeFunction ABS = new TVScriptNativeFunction(
+        "abs", 
+        List.of(new Parameter("n", TokenType.TYPE_DECIMAL)), //Parameters expected
+        TokenType.TYPE_DECIMAL,
+        (Map<String, Object> args) -> {
+            Object val = args.get("n");
+            if (val instanceof Integer) return Math.abs((int) val);
+            if (val instanceof Double) return Math.abs((double) val);
+            return 0;
+        }
+);
+
+//Configure the global environment with these two functions
+Environment globals = new Environment.GlobalBuilder()
+    .withNativeFunction(NativeFunctions.CLOCK)
+    .withNativeFunction(NativeFunctions.ABS)
+    .build();
+```
+Now to call these functions from withing tvscript, prefix the function name with the `native` keyword. In the future the usage of this native keyword will be limited to library scripts instead. Right now there is no way to mark a script as a library, so these work globally.
+```
+print native abs(n: -10)
+print native clock()
+```
+Regular function calls must not use `native`.
+
+## Native classes
+Passing data between java and tvscript beyond primitive types will require a native class binding. Native classes are a bit nuanced so let's look at an advanced example to capture these nuances. First a simple Vector2d class with an x and y int field. In java this may look like:
+```java
+package com.example.tvscript;
+
+public class Vector2d {
+
+    public static final Vector2d UNIT_VECTOR = new Vector2d(1, 0);
+
+    private int x;
+    private int y;
+
+    public Vector2d(int x, int y) {
+        this.x = x;
+        this.y = y;
+    }
+
+    public int getX() { return x; }
+    public int getY() { return y; }
+
+    public void setX(int x) { this.x = x; }
+    public void setY(int y) { this.y = y; }
+
+    public Vector2d add(Vector2d delta) {
+        return new Vector2d(x + delta.x, y + delta.y);
+    }
+}
+```
+We need to bind *everything* that we want to expose to TVScript, if we don't bind it, it won't be accessible. For the above class a binding would look like this:
+```java
+public final class NativeClasses {
+
+    public static final NativeClass VEC2 = NativeClass.builder("Vec2", Vector2d.class)
+
+        // Constructor
+        .constructor(
+            params(
+                param("x", TVType.INTEGER),
+                param("y", TVType.INTEGER)
+            ),
+            (args) -> new Vector2d(
+                (int) args.get("x"),
+                (int) args.get("y")
+            )
+        )
+
+        // Properties
+        .property("x", TVType.INTEGER, Vector2d::getX, Vector2d::setX)
+        .property("y", TVType.INTEGER, Vector2d::getY, Vector2d::setY)
+
+        // Static constant (self reference)
+        .constant(
+            "UNIT_VECTOR",
+            TVType.self(),
+            Vector2d.UNIT_VECTOR
+        )
+
+        // Method
+        .method(
+            "add",
+            params(param("delta", TVType.self())),
+            TVType.self(),
+            (self, args) -> self.add((Vector2d) args.get("delta"))
+        )
+
+        .build();
+}
+```
+Notice that there is a binding for each of the constants, constructors, methods, etc. exposed by this class. The last step on the java side to creating a binding is to add it to the global environment. We do this the same way as with native functions:
+```java
+Environment globals = new Environment.Builder()
+    .withClass(NativeClasses.VEC2)
+    .build();
+```
+Lastly in our script somewhere we need to registrer this class. Since we did all the work on the java side this definition can be as simple as:
+```java
+native class Vec2:
+    pass
+```
+You can also give TVScript specific functionality to these classes
+```java
+// math/Vec2.tvs
+native class Vec2:
+
+  function subtract(Vec2 delta) -> Vec2:
+    return new Vec2(x: x - delta.x, y: y - delta.y)
+```
+Now let's add to this example. What if we have a native type that uses another native type as a field, how do we do that? We'll it's pretty simple since this is done with static initialization, we just refer to the types with those initializers:
+```java
+public static final NativeClass TRANSFORM = NativeClass.builder("math.Transform", Transform.class)
+
+    // Constructor depends on Vec2
+    .constructor(
+        params(param("position", TVType.ref(VEC2))),
+        (args) -> new Transform(
+            (Vector2d) args.get("position")
+        )
+    )
+
+    // Property
+    .property(
+        "position",
+        TVType.ref(VEC2),
+        Transform::getPosition,
+        Transform::setPosition
+    )
+
+    // Method
+    .method(
+        "translate",
+        params(param("delta", TVType.ref(VEC2))),
+        TVType.NONE,
+        (self, args) -> {
+            self.translate((Vector2d) args.get("delta"));
+            return null;
+        }
+    )
+
+    .build();
+```
+Remember to add it to the global environment and define it in TVScript (with some additional optional functionality):
+```java
+Environment globals = new Environment.Builder()
+    .withClass(NativeClasses.VEC2)
+    .withClass(NativeClasses.TRANSFORM)
+    .build();
+```
+```
+native class Transform:
+
+  function move(Vec2 delta):
+    translate(delta: delta)
+```
+Notice we've used a couple special methods:
+``TVType.self()`` → resolved to owning class
+``TVType.ref(VEC2)`` → resolved to Vec2
+
+And using them in TVScript feels native to the language and not like a tacked on feature like some other languages feel:
+```
+import math.Vec2
+import math.Transform
+
+let pos = new Vec2(x: 1, y: 2)
+let t = new Transform(position: pos)
+
+t.translate(delta: new Vec2(x: 5, y: 0))
+
+print t.position.x  // 6
+print t.position.y  // 2
+
+let moved = pos.add(new Vec2(x: 1, y: 1))
+print moved.x  // 2
+print moved.y  // 3
+```
+Native type binding resolves in two phases,the definition phase (what you've seen here) and behind the scenes a linking phase. All instances of native classes are wrappers around real java objects (since this is an embedded language and optionally a jvm compiled language this not only feels native, but is native).
