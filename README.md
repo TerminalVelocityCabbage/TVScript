@@ -36,7 +36,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [ ] Async Execution (`async` / `await` / `launch`)
 - [ ] Events & Event Listeners (`event` / `on` / `dispatch`)
 - [ ] Annotations
-- [ ] Native Classes
+- [X] Native Classes
 - [x] Native Functions
 
 ### Ecosystem & Runtime
@@ -1472,7 +1472,8 @@ print myCounter.count // still prints 1
 Native functions and classes allow you to bind some script logic to native java functionality, usually done with the native keyword. The design methodology for native functionality is to allow most of the configuration to be done on the java side as a library to the global environment rather than most of the work being done in TVScript. This is because as a language designed to be embedded into java programs, we expect the maintainers of these programs to also know java.
 
 ### Native functions
-TVScript does not automatically configure global native functions. Embedders must build and provide their own global environment. Below is an example of two native functions, clock and abs (absolute value)
+
+TVScript has a native function API; you pass `TVScriptNativeFunction` definitions into the global environment of the embedded application. Embedders must build and provide their own global environment. Below is an example of two native functions, clock and abs (absolute value)
 ```java
 public static final TVScriptNativeFunction CLOCK = new TVScriptNativeFunction(
         "clock", //The name of the native function
@@ -1576,7 +1577,7 @@ public final class NativeClasses {
 ```
 Notice that there is a binding for each of the constants, constructors, methods, etc. exposed by this class. The last step on the java side to creating a binding is to add it to the global environment. We do this the same way as with native functions:
 ```java
-Environment globals = new Environment.Builder()
+Environment globals = new Environment.GlobalBuilder()
     .withClass(NativeClasses.VEC2)
     .build();
 ```
@@ -1593,7 +1594,7 @@ native class Vec2:
   function subtract(Vec2 delta) -> Vec2:
     return new Vec2(x: x - delta.x, y: y - delta.y)
 ```
-Now let's add to this example. What if we have a native type that uses another native type as a field, how do we do that? We'll it's pretty simple since this is done with static initialization, we just refer to the types with those initializers:
+Now let's add to this example. What if we have a native type that uses another native type as a field? We use `TVType.ref(...)` and let the environment linking phase resolve it after all classes are registered:
 ```java
 public static final NativeClass TRANSFORM = NativeClass.builder("math.Transform", Transform.class)
 
@@ -1628,7 +1629,7 @@ public static final NativeClass TRANSFORM = NativeClass.builder("math.Transform"
 ```
 Remember to add it to the global environment and define it in TVScript (with some additional optional functionality):
 ```java
-Environment globals = new Environment.Builder()
+Environment globals = new Environment.GlobalBuilder()
     .withClass(NativeClasses.VEC2)
     .withClass(NativeClasses.TRANSFORM)
     .build();
@@ -1660,4 +1661,4 @@ let moved = pos.add(new Vec2(x: 1, y: 1))
 print moved.x  // 2
 print moved.y  // 3
 ```
-Native type binding resolves in two phases,the definition phase (what you've seen here) and behind the scenes a linking phase. All instances of native classes are wrappers around real java objects (since this is an embedded language and optionally a jvm compiled language this not only feels native, but is native).
+Native type binding resolves in two phases: definition and linking. All instances of native classes are wrappers around real Java objects.

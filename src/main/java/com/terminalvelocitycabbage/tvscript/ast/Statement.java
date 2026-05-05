@@ -155,7 +155,7 @@ public interface Statement {
         }
     }
 
-    record ClassStatement(Token name, List<GenericParameter> genericParameters, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors) implements Statement {
+    record ClassStatement(Token name, List<GenericParameter> genericParameters, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors, boolean isNative) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitClassStatement(this);

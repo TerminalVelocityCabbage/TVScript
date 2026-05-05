@@ -91,7 +91,7 @@ public class TVScript {
             throw new CompileError(null, "Unknown syntax error");
         }
 
-        TypeChecker typeChecker = new TypeChecker(interpreter.getNativeFunctions());
+        TypeChecker typeChecker = new TypeChecker(interpreter.getNativeFunctions(), interpreter.getEnvironment().getNativeClasses());
         typeChecker.check(statements);
 
         // Stop if there was a static analysis error.

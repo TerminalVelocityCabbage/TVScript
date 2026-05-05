@@ -4,12 +4,17 @@ import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import java.util.ArrayList;
+import java.util.Set;
 
 public class TVScriptClass {
+    static final Object MISSING_MEMBER = new Object();
+
     final String name;
     final TVScriptClass superclass;
     final List<TVScriptTrait> traits;
@@ -19,6 +24,10 @@ public class TVScriptClass {
     final List<TVScriptFunction> constructors;
     final Map<String, List<TVScriptFunction>> operators;
     final boolean isType;
+    final NativeClass nativeClass;
+    final Map<String, Object> classConstants;
+
+    private final Map<Object, TVScriptInstance> nativeWrapperCache = new IdentityHashMap<>();
 
     public TVScriptClass(String name,
                          TVScriptClass superclass,
@@ -29,6 +38,20 @@ public class TVScriptClass {
                          List<TVScriptFunction> constructors,
                          Map<String, List<TVScriptFunction>> operators,
                          boolean isType) {
+        this(name, superclass, traits, fields, methods, staticMethods, constructors, operators, isType, null, Map.of());
+    }
+
+    public TVScriptClass(String name,
+                         TVScriptClass superclass,
+                         List<TVScriptTrait> traits,
+                         List<Statement.VarStatement> fields,
+                         Map<String, TVScriptFunction> methods,
+                         Map<String, TVScriptFunction> staticMethods,
+                         List<TVScriptFunction> constructors,
+                         Map<String, List<TVScriptFunction>> operators,
+                         boolean isType,
+                         NativeClass nativeClass,
+                         Map<String, Object> classConstants) {
         this.name = name;
         this.superclass = superclass;
         this.traits = traits;
@@ -38,12 +61,17 @@ public class TVScriptClass {
         this.constructors = constructors;
         this.operators = operators;
         this.isType = isType;
+        this.nativeClass = nativeClass;
+        this.classConstants = classConstants == null ? new HashMap<>() : new HashMap<>(classConstants);
     }
 
     public TVScriptInstance instantiate(Interpreter interpreter, Map<String, Object> arguments, Token callToken) {
-        TVScriptInstance instance = new TVScriptInstance(this);
+        if (resolveNativeClass() != null) {
+            return instantiateNative(interpreter, arguments, callToken);
+        }
 
-        // Evaluate and set initial field values (including superclasses)
+        TVScriptInstance instance = new TVScriptInstance(this, interpreter, null);
+
         initializeFields(instance, interpreter);
 
         if (constructors.isEmpty()) {
@@ -60,12 +88,51 @@ public class TVScriptClass {
         return instance;
     }
 
+    private TVScriptInstance instantiateNative(Interpreter interpreter, Map<String, Object> arguments, Token callToken) {
+        NativeClass boundNativeClass = resolveNativeClass();
+        if (boundNativeClass == null) {
+            throw new RuntimeError(callToken, "Native class binding for '" + name + "' was not found.");
+        }
+        NativeClass.ConstructorBinding<?> constructor = findBestNativeConstructor(boundNativeClass, arguments, callToken);
+        Map<String, Object> preparedArguments = prepareNativeArguments(boundNativeClass, constructor.parameters(), arguments, callToken, interpreter);
+        Object nativeObject = constructor.create(preparedArguments);
+        return wrapNativeInstance(nativeObject, interpreter);
+    }
+
+    public TVScriptInstance wrapNativeInstance(Object nativeObject, Interpreter interpreter) {
+        if (nativeObject == null) {
+            throw new IllegalArgumentException("Native object cannot be null.");
+        }
+
+        NativeClass boundNativeClass = resolveNativeClass();
+        if (boundNativeClass == null) {
+            throw new IllegalStateException("Class '" + name + "' is not bound to a native class.");
+        }
+        if (!boundNativeClass.javaClass().isInstance(nativeObject)) {
+            throw new IllegalStateException("Object of type '" + nativeObject.getClass().getName()
+                    + "' cannot be wrapped as native class '" + boundNativeClass.scriptName() + "'.");
+        }
+
+        TVScriptInstance cached = nativeWrapperCache.get(nativeObject);
+        if (cached != null) {
+            return cached;
+        }
+
+        TVScriptInstance instance = new TVScriptInstance(this, interpreter, nativeObject);
+        initializeFields(instance, interpreter);
+        nativeWrapperCache.put(nativeObject, instance);
+        return instance;
+    }
+
     private void initializeFields(TVScriptInstance instance, Interpreter interpreter) {
         if (superclass != null) {
             superclass.initializeFields(instance, interpreter);
         }
 
         for (Statement.VarStatement field : fields) {
+            if (field.isConst() && !isType) {
+                continue;
+            }
             Object value = null;
             if (field.initializer() != null) {
                 value = interpreter.evaluate(field.initializer());
@@ -77,6 +144,9 @@ public class TVScriptClass {
     private void applyTypeArguments(TVScriptInstance instance, Map<String, Object> arguments, Token callToken) {
         Map<String, Statement.VarStatement> fieldMap = new HashMap<>();
         for (Statement.VarStatement field : fields) {
+            if (field.isConst() && !isType) {
+                continue;
+            }
             fieldMap.put(field.name().lexeme(), field);
         }
 
@@ -88,7 +158,6 @@ public class TVScriptClass {
             instance.defineField(field.name(), entry.getValue());
         }
     }
-
 
     private TVScriptFunction findBestConstructor(Map<String, Object> arguments, Token callToken) {
         TVScriptFunction bestMatch = null;
@@ -111,8 +180,18 @@ public class TVScriptClass {
         return bestMatch;
     }
 
+    private NativeClass.ConstructorBinding<?> findBestNativeConstructor(NativeClass boundNativeClass,
+                                                                        Map<String, Object> arguments,
+                                                                        Token callToken) {
+        for (NativeClass.ConstructorBinding<?> constructor : boundNativeClass.constructors()) {
+            if (isNativeCandidate(constructor.parameters(), arguments)) {
+                return constructor;
+            }
+        }
+        throw new RuntimeError(callToken, "No matching constructor found for " + name + " with provided arguments.");
+    }
+
     private boolean isCandidate(TVScriptFunction constructor, Map<String, Object> arguments) {
-        // All provided arguments must be in the parameter list
         for (String argName : arguments.keySet()) {
             boolean found = false;
             for (Statement.FunctionStatement.Parameter param : constructor.parameters()) {
@@ -124,7 +203,6 @@ public class TVScriptClass {
             if (!found) return false;
         }
 
-        // All parameters without default value must be provided
         for (Statement.FunctionStatement.Parameter param : constructor.parameters()) {
             if (param.defaultValue() == null && !arguments.containsKey(param.name().lexeme())) {
                 return false;
@@ -134,10 +212,202 @@ public class TVScriptClass {
         return true;
     }
 
+    private boolean isNativeCandidate(List<NativeClass.Parameter> parameters, Map<String, Object> arguments) {
+        Set<String> parameterNames = new HashSet<>();
+        for (NativeClass.Parameter parameter : parameters) {
+            parameterNames.add(parameter.name());
+        }
+
+        for (String key : arguments.keySet()) {
+            if (key.startsWith("$")) {
+                int index;
+                try {
+                    index = Integer.parseInt(key.substring(1));
+                } catch (NumberFormatException ex) {
+                    return false;
+                }
+                if (index < 0 || index >= parameters.size()) {
+                    return false;
+                }
+            } else if (!parameterNames.contains(key)) {
+                return false;
+            }
+        }
+
+        for (int i = 0; i < parameters.size(); i++) {
+            NativeClass.Parameter parameter = parameters.get(i);
+            if (!arguments.containsKey(parameter.name()) && !arguments.containsKey("$" + i)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private Map<String, Object> prepareNativeArguments(NativeClass owner,
+                                                       List<NativeClass.Parameter> parameters,
+                                                       Map<String, Object> arguments,
+                                                       Token callToken,
+                                                       Interpreter interpreter) {
+        Map<String, Object> prepared = new HashMap<>();
+
+        for (int i = 0; i < parameters.size(); i++) {
+            NativeClass.Parameter parameter = parameters.get(i);
+            Object provided;
+            if (arguments.containsKey(parameter.name())) {
+                provided = arguments.get(parameter.name());
+            } else if (arguments.containsKey("$" + i)) {
+                provided = arguments.get("$" + i);
+            } else {
+                throw new RuntimeError(callToken, "Missing required argument '" + parameter.name() + "'.");
+            }
+
+            Object nativeValue = interpreter.toNativeValue(provided);
+            TVType.ResolvedType resolvedType = owner.resolveType(parameter.type());
+            if (resolvedType.nativeClass() != null && nativeValue != null
+                    && !resolvedType.nativeClass().javaClass().isInstance(nativeValue)) {
+                throw new RuntimeError(callToken,
+                        "Argument '" + parameter.name() + "' expected native type '" + resolvedType.namedType() + "'.");
+            }
+            prepared.put(parameter.name(), nativeValue);
+        }
+
+        for (String key : arguments.keySet()) {
+            if (key.startsWith("$")) {
+                int index;
+                try {
+                    index = Integer.parseInt(key.substring(1));
+                } catch (NumberFormatException ex) {
+                    throw new RuntimeError(callToken, "Invalid positional argument key '" + key + "'.");
+                }
+                if (index < 0 || index >= parameters.size()) {
+                    throw new RuntimeError(callToken, "Unexpected positional argument index '" + index + "'.");
+                }
+            } else {
+                boolean exists = false;
+                for (NativeClass.Parameter parameter : parameters) {
+                    if (parameter.name().equals(key)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    throw new RuntimeError(callToken, "Unexpected named argument '" + key + "'.");
+                }
+            }
+        }
+
+        return prepared;
+    }
+
+    public Object getClassMember(String memberName, Interpreter interpreter) {
+        TVScriptFunction staticMethod = findStaticMethod(memberName);
+        if (staticMethod != null) {
+            return staticMethod;
+        }
+        if (classConstants.containsKey(memberName)) {
+            return interpreter.toScriptValue(classConstants.get(memberName));
+        }
+        return MISSING_MEMBER;
+    }
+
+    public Object getNativeInstanceMember(TVScriptInstance instance, Token nameToken, Interpreter interpreter) {
+        NativeClass boundNativeClass = resolveNativeClass();
+        if (boundNativeClass == null) {
+            return MISSING_MEMBER;
+        }
+
+        Object nativeObject = instance.getNativeObject();
+        if (nativeObject == null) {
+            return MISSING_MEMBER;
+        }
+
+        NativeClass.PropertyBinding<?> property = boundNativeClass.properties().get(nameToken.lexeme());
+        if (property != null) {
+            return interpreter.toScriptValue(property.get(nativeObject));
+        }
+
+        NativeClass.MethodBinding<?> nativeMethod = boundNativeClass.methods().get(nameToken.lexeme());
+        if (nativeMethod != null) {
+            return new TVScriptCallable() {
+                @Override
+                public int arity() {
+                    return nativeMethod.parameters().size();
+                }
+
+                @Override
+                public Object call(Interpreter callInterpreter, Map<String, Object> arguments, Token callToken) {
+                    Map<String, Object> prepared = prepareNativeArguments(
+                            boundNativeClass,
+                            nativeMethod.parameters(),
+                            arguments,
+                            callToken,
+                            callInterpreter
+                    );
+                    Object result = nativeMethod.invoke(nativeObject, prepared);
+                    return callInterpreter.toScriptValue(result);
+                }
+
+                @Override
+                public String toString() {
+                    return "<native method " + nameToken.lexeme() + ">";
+                }
+            };
+        }
+
+        return MISSING_MEMBER;
+    }
+
+    public boolean setNativeInstanceProperty(TVScriptInstance instance, Token nameToken, Object value, Interpreter interpreter) {
+        NativeClass boundNativeClass = resolveNativeClass();
+        if (boundNativeClass == null) {
+            return false;
+        }
+
+        NativeClass.PropertyBinding<?> property = boundNativeClass.properties().get(nameToken.lexeme());
+        if (property == null) {
+            return false;
+        }
+
+        Object nativeObject = instance.getNativeObject();
+        if (nativeObject == null) {
+            throw new RuntimeError(nameToken, "Native instance for class '" + name + "' was not initialized.");
+        }
+
+        TVType.ResolvedType resolvedType = boundNativeClass.resolveType(property.type());
+        Object nativeValue = interpreter.toNativeValue(value);
+        if (resolvedType.nativeClass() != null && nativeValue != null
+                && !resolvedType.nativeClass().javaClass().isInstance(nativeValue)) {
+            throw new RuntimeError(nameToken,
+                    "Property '" + nameToken.lexeme() + "' expected native type '" + resolvedType.namedType() + "'.");
+        }
+        property.set(nativeObject, nativeValue);
+        return true;
+    }
+
+    private NativeClass resolveNativeClass() {
+        if (nativeClass != null) {
+            return nativeClass;
+        }
+        if (superclass != null) {
+            return superclass.resolveNativeClass();
+        }
+        return null;
+    }
+
+    public boolean isSameOrSubclass(String expectedTypeName) {
+        TVScriptClass current = this;
+        while (current != null) {
+            if (current.name.equals(expectedTypeName)) {
+                return true;
+            }
+            current = current.superclass;
+        }
+        return false;
+    }
+
     TVScriptFunction findMethod(String name) {
         if (name.equals("constructor")) {
-            // This is a bit of a hack to support super() calls, but it works for now
-            // In a more complete implementation, we'd handle constructor matching properly
             return constructors.isEmpty() ? null : constructors.get(0);
         }
 
@@ -196,21 +466,10 @@ public class TVScriptClass {
                 if (!(value instanceof TVScriptInstance instance)) {
                     yield false;
                 }
-                yield isSameOrSubclass(instance.getType(), type.lexeme());
+                yield instance.getType().isSameOrSubclass(type.lexeme());
             }
             default -> true;
         };
-    }
-
-    private boolean isSameOrSubclass(TVScriptClass actualType, String expectedTypeName) {
-        TVScriptClass current = actualType;
-        while (current != null) {
-            if (current.name.equals(expectedTypeName)) {
-                return true;
-            }
-            current = current.superclass;
-        }
-        return false;
     }
 
     @Override

@@ -7,6 +7,7 @@ import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -19,6 +20,7 @@ public class Environment {
     private final Map<String, VariableInfo> values = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private final Map<String, TVScriptNativeFunction> nativeFunctions = new HashMap<>();
+    private final Map<String, NativeClass> nativeClasses = new HashMap<>();
 
     /**
      * Information about a variable.
@@ -73,6 +75,38 @@ public class Environment {
             }
         }
         result.putAll(nativeFunctions);
+        return result.values();
+    }
+
+    public void defineNativeClass(NativeClass nativeClass) {
+        nativeClasses.put(nativeClass.scriptName(), nativeClass);
+    }
+
+    public boolean hasNativeClass(String name) {
+        if (nativeClasses.containsKey(name)) {
+            return true;
+        }
+        return enclosing != null && enclosing.hasNativeClass(name);
+    }
+
+    public NativeClass getNativeClass(String name) {
+        if (nativeClasses.containsKey(name)) {
+            return nativeClasses.get(name);
+        }
+        if (enclosing != null) {
+            return enclosing.getNativeClass(name);
+        }
+        return null;
+    }
+
+    public Collection<NativeClass> getNativeClasses() {
+        Map<String, NativeClass> result = new LinkedHashMap<>();
+        if (enclosing != null) {
+            for (NativeClass nativeClass : enclosing.getNativeClasses()) {
+                result.put(nativeClass.scriptName(), nativeClass);
+            }
+        }
+        result.putAll(nativeClasses);
         return result.values();
     }
 
@@ -191,6 +225,7 @@ public class Environment {
 
     public static class GlobalBuilder {
         private final Environment global = new Environment();
+        private final Map<String, NativeClass> nativeClassDefinitions = new LinkedHashMap<>();
 
         public GlobalBuilder withNativeFunction(TVScriptNativeFunction function) {
             global.defineNative(function.name(), function);
@@ -204,7 +239,24 @@ public class Environment {
             return this;
         }
 
+        public GlobalBuilder withClass(NativeClass nativeClass) {
+            NativeClass previous = nativeClassDefinitions.putIfAbsent(nativeClass.scriptName(), nativeClass);
+            if (previous != null) {
+                throw new IllegalStateException("Duplicate native class registration for '"
+                        + nativeClass.scriptName() + "': "
+                        + previous.javaClass().getSimpleName() + " and "
+                        + nativeClass.javaClass().getSimpleName() + ".");
+            }
+            return this;
+        }
+
         public Environment build() {
+            for (NativeClass nativeClass : nativeClassDefinitions.values()) {
+                nativeClass.resolveReferences(nativeClassDefinitions);
+            }
+            for (NativeClass nativeClass : nativeClassDefinitions.values()) {
+                global.defineNativeClass(nativeClass);
+            }
             return global;
         }
     }

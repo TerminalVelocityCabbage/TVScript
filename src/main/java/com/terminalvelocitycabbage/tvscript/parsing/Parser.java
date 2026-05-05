@@ -59,7 +59,12 @@ public class Parser {
     private Statement declaration() {
         try {
             if (match(IMPORT)) return importDeclaration();
-            if (match(CLASS)) return classDeclaration();
+            if (check(NATIVE) && checkNext(CLASS)) {
+                advance();
+                advance();
+                return classDeclaration(true);
+            }
+            if (match(CLASS)) return classDeclaration(false);
             if (match(TRAIT)) return traitDeclaration();
             if (match(TYPE)) return typeDeclaration();
             if (match(CONSTRAINT)) return constraintDeclaration();
@@ -405,7 +410,7 @@ public class Parser {
         return new ConstraintStatement(name, superclassConstraint, traitConstraints);
     }
 
-    private Statement classDeclaration() {
+    private Statement classDeclaration(boolean isNative) {
         Token name = consume(IDENTIFIER, "Expect class name.");
         List<GenericParameter> genericParameters = parseGenericParameters();
 
@@ -436,11 +441,20 @@ public class Parser {
 
         while (!check(DEDENT) && !isAtEnd()) {
             if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP, VAR, CONST)) {
+                if (isNative && previous().type() != CONST) {
+                    throw error(previous(), "Native classes cannot declare instance fields.");
+                }
                 fields.add((VarStatement)varDeclaration(previous()));
             } else if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
+                if (isNative) {
+                    throw error(peek(), "Native classes cannot declare instance fields.");
+                }
                 Token type = consumeType("Expect field type.");
                 fields.add((VarStatement)varDeclaration(type));
             } else if (match(CONSTRUCTOR)) {
+                if (isNative) {
+                    throw error(previous(), "Native classes cannot declare constructors.");
+                }
                 constructors.add(constructorDeclaration());
             } else if (match(FUNCTION)) {
                 staticMethods.add((FunctionStatement)functionDeclaration("static function"));
@@ -459,12 +473,12 @@ public class Parser {
 
         consume(DEDENT, "Expect dedent after class body.");
 
-        if (constructors.isEmpty()) {
+        if (constructors.isEmpty() && !isNative) {
             TVScript.error(name, "Class must have a constructor.");
             throw new ParseError();
         }
 
-        return new ClassStatement(name, genericParameters, superclass, traits, fields, methods, staticMethods, constructors);
+        return new ClassStatement(name, genericParameters, superclass, traits, fields, methods, staticMethods, constructors, isNative);
     }
 
     private Statement traitDeclaration() {

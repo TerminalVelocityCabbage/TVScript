@@ -206,6 +206,44 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         return environment.getNativeFunctions();
     }
 
+    Object toNativeValue(Object value) {
+        if (value instanceof TVScriptInstance instance && instance.getNativeObject() != null) {
+            return instance.getNativeObject();
+        }
+        return value;
+    }
+
+    Object toScriptValue(Object value) {
+        if (value == null || value instanceof TVScriptInstance) {
+            return value;
+        }
+
+        TVScriptClass nativeClass = findTVScriptClassForNativeValue(value);
+        if (nativeClass != null) {
+            return nativeClass.wrapNativeInstance(value, this);
+        }
+
+        return value;
+    }
+
+    private TVScriptClass findTVScriptClassForNativeValue(Object value) {
+        for (NativeClass nativeClass : environment.getNativeClasses()) {
+            if (!nativeClass.javaClass().isInstance(value)) {
+                continue;
+            }
+
+            try {
+                Object classValue = environment.get(new Token(TokenType.CLASS, nativeClass.scriptName(), null, 0));
+                if (classValue instanceof TVScriptClass tvScriptClass) {
+                    return tvScriptClass;
+                }
+            } catch (RuntimeError ignored) {
+                // class not yet bound in this environment
+            }
+        }
+        return null;
+    }
+
     private void execute(Statement stmt) {
         stmt.accept(this);
     }
@@ -565,9 +603,11 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         }
 
         if (object instanceof TVScriptClass klass) {
-            TVScriptFunction staticMethod = klass.findStaticMethod(expr.name().lexeme());
-            if (staticMethod != null) return staticMethod;
-            throw new RuntimeError(expr.name(), "Undefined static method '" + expr.name().lexeme() + "'.");
+            Object classMember = klass.getClassMember(expr.name().lexeme(), this);
+            if (classMember != TVScriptClass.MISSING_MEMBER) {
+                return classMember;
+            }
+            throw new RuntimeError(expr.name(), "Undefined static member '" + expr.name().lexeme() + "'.");
         }
 
         if (object instanceof TVScriptTrait trait) {
@@ -1356,6 +1396,14 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitClassStatement(ClassStatement stmt) {
+        NativeClass nativeClassBinding = null;
+        if (stmt.isNative()) {
+            nativeClassBinding = environment.getNativeClass(stmt.name().lexeme());
+            if (nativeClassBinding == null) {
+                throw new RuntimeError(stmt.name(), "'" + stmt.name().lexeme() + "' not defined as a native class type on the global environment.");
+            }
+        }
+
         TVScriptClass superclass = null;
         if (stmt.superclass() != null) {
             Object obj = environment.get(stmt.superclass());
@@ -1386,21 +1434,42 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             staticMethods.put(staticMethod.name().lexeme(), function);
         }
 
+        List<VarStatement> instanceFields = new ArrayList<>();
+        Map<String, Object> classConstants = new HashMap<>();
+        for (VarStatement field : stmt.fields()) {
+            if (field.isConst()) {
+                Object constantValue = field.initializer() == null ? null : evaluate(field.initializer());
+                classConstants.put(field.name().lexeme(), constantValue);
+            } else {
+                instanceFields.add(field);
+            }
+        }
+
+        if (nativeClassBinding != null) {
+            for (NativeClass.ConstantBinding constantBinding : nativeClassBinding.constants().values()) {
+                classConstants.putIfAbsent(constantBinding.name(), constantBinding.value());
+            }
+        }
+
         List<TVScriptFunction> constructors = new ArrayList<>();
-        for (FunctionStatement constructorStmt : stmt.constructors()) {
-            constructors.add(new TVScriptFunction(constructorStmt, environment));
+        if (!stmt.isNative()) {
+            for (FunctionStatement constructorStmt : stmt.constructors()) {
+                constructors.add(new TVScriptFunction(constructorStmt, environment));
+            }
         }
 
         TVScriptClass klass = new TVScriptClass(
                 stmt.name().lexeme(),
                 superclass,
                 traits,
-                stmt.fields(),
+                instanceFields,
                 methods,
                 staticMethods,
                 constructors,
                 new HashMap<>(),
-                false
+                false,
+                nativeClassBinding,
+                classConstants
         );
         environment.define(stmt.name(), klass, TokenType.CLASS, true);
         return null;

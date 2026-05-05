@@ -6,6 +6,7 @@ import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
 import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
+import com.terminalvelocitycabbage.tvscript.execution.NativeClass;
 import com.terminalvelocitycabbage.tvscript.execution.TVScriptNativeFunction;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
@@ -30,6 +31,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final Map<String, ConstraintStatement> constraints = new HashMap<>();
     private final Map<String, FunctionStatement> functions = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
+    private final Map<String, NativeClass> nativeClasses = new HashMap<>();
     private int loopDepth = 0;
 
     private static class VariableStaticInfo {
@@ -55,14 +57,21 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     public TypeChecker() {
-        this(List.of());
+        this(List.of(), List.of());
     }
 
     public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions) {
+        this(nativeFunctions, List.of());
+    }
+
+    public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions, Collection<NativeClass> nativeClasses) {
         Map<String, VariableStaticInfo> globalScope = new HashMap<>();
         for (TVScriptNativeFunction nativeFunction : nativeFunctions) {
             globalScope.put(nativeFunction.name(), new VariableStaticInfo(TokenType.FUNCTION, true, nativeFunction.returnType()));
             nativeFunctionNames.add(nativeFunction.name());
+        }
+        for (NativeClass nativeClass : nativeClasses) {
+            this.nativeClasses.put(nativeClass.scriptName(), nativeClass);
         }
         scopes.add(globalScope);
     }
@@ -281,6 +290,31 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public Void visitClassStatement(ClassStatement stmt) {
         ClassStatement previousClass = currentClass;
         currentClass = stmt;
+        NativeClass nativeClass = null;
+        if (stmt.isNative()) {
+            nativeClass = nativeClasses.get(stmt.name().lexeme());
+            if (nativeClass == null) {
+                TVScript.compileError(new CompileError(stmt.name(), "'" + stmt.name().lexeme() + "' not defined as a native class type on the global environment."));
+                currentClass = previousClass;
+                return null;
+            }
+
+            if (!stmt.constructors().isEmpty()) {
+                TVScript.compileError(new CompileError(stmt.name(), "Native classes cannot declare constructors."));
+            }
+            for (VarStatement field : stmt.fields()) {
+                if (!field.isConst()) {
+                    TVScript.compileError(new CompileError(field.name(), "Native classes cannot declare instance fields."));
+                }
+            }
+            for (FunctionStatement method : stmt.methods()) {
+                if (nativeClass.methods().containsKey(method.name().lexeme())) {
+                    TVScript.compileError(new CompileError(method.name(),
+                            "Native class '" + stmt.name().lexeme() + "' cannot override native member '" + method.name().lexeme() + "'."));
+                }
+            }
+        }
+
         declare(stmt.name(), TokenType.CLASS, true);
         
         // Check trait conflicts and missing implementations
@@ -786,6 +820,17 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private boolean hasMethod(ClassStatement stmt, String name) {
+        if (stmt.isNative()) {
+            NativeClass nativeClass = nativeClasses.get(stmt.name().lexeme());
+            if (nativeClass != null) {
+                if (nativeClass.methods().containsKey(name)) {
+                    return true;
+                }
+                if (nativeClass.properties().containsKey(name)) {
+                    return true;
+                }
+            }
+        }
         for (FunctionStatement method : stmt.methods()) {
             if (method.name().lexeme().equals(name)) return true;
         }
@@ -876,6 +921,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             ClassStatement classStatement = classes.get(variableExpression.name().lexeme());
             if (classStatement != null) {
                 validateClassTypeArguments(variableExpression.name(), classStatement, expr.typeArguments());
+                if (classStatement.isNative()) {
+                    NativeClass nativeClass = nativeClasses.get(classStatement.name().lexeme());
+                    if (nativeClass != null && nativeClass.constructors().isEmpty()) {
+                        TVScript.compileError(new CompileError(expr.keyword(), "Native class '" + classStatement.name().lexeme() + "' has no constructors."));
+                    }
+                }
             }
         }
 
