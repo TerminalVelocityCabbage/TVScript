@@ -68,7 +68,12 @@ public class Parser {
             if (match(TRAIT)) return traitDeclaration();
             if (match(TYPE)) return typeDeclaration();
             if (match(CONSTRAINT)) return constraintDeclaration();
-            if (match(EVENT)) return eventDeclaration();
+            if (check(NATIVE) && checkNext(EVENT)) {
+                advance();
+                advance();
+                return eventDeclaration(true);
+            }
+            if (match(EVENT)) return eventDeclaration(false);
             if (match(ON)) return onDeclaration();
             if (match(FUNCTION)) {
                 return functionDeclaration("function");
@@ -354,7 +359,7 @@ public class Parser {
         return new ExpressionStatement(expr);
     }
 
-    private Statement eventDeclaration() {
+    private Statement eventDeclaration(boolean isNative) {
         Token name = consume(IDENTIFIER, "Expect event name.");
         consume(COLON, "Expect ':' after event name.");
 
@@ -375,7 +380,7 @@ public class Parser {
             fields.add((VarStatement) varDeclaration(type));
         }
 
-        return new EventStatement(name, fields);
+        return new EventStatement(name, fields, isNative);
     }
 
     private Statement onDeclaration() {

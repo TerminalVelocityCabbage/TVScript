@@ -181,9 +181,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     public Interpreter(Environment configuredGlobals) {
+        this(configuredGlobals, new TVEventsEventSystem());
+    }
+
+    public Interpreter(Environment configuredGlobals, EventSystem eventSystem) {
         this.configuredGlobals = configuredGlobals;
         this.environment = new Environment(configuredGlobals);
-        this.eventSystem = new TVEventsEventSystem();
+        this.eventSystem = eventSystem;
     }
 
     public void reset() {

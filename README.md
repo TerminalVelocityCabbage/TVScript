@@ -38,7 +38,7 @@ Currently, the language is under heavy development. Below is the implementation 
 - [ ] Annotations
 - [X] Native Classes
 - [x] Native Functions
-- [ ] Native Events and Listeners
+- [x] Native Events and Listeners
 
 ### Ecosystem & Runtime
 - [ ] Module System (`import`)
@@ -971,14 +971,6 @@ on PlayerJoinedEvent(Player player): //parameter names must match the names of t
 ```
 Game engines are encouraged to define their own events that are dispatched by the engine and can be listened to by scripts.
 
-### Native Events
-Native events are defined in TVScript with a single field that maps to a native class.
-
-```ts
-event NativeEvent:
-    NativeClassMapping event
-```
-
 ### Pattern matching in Events
 Events can be dispatched with a pattern match. This lets you filter before any code in the event block is executed.
 
@@ -1614,3 +1606,11 @@ print moved.x  // 2
 print moved.y  // 3
 ```
 Native type binding resolves in two phases: definition and linking. All instances of native classes are wrappers around real Java objects.
+
+## Native Events
+Native events are defined in TVScript with the `native` keyword and a single field that maps to a native class.
+
+```ts
+native event NativeEvent:
+    NativeClassMapping event
+```

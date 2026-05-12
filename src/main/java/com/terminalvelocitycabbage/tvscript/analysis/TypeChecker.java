@@ -455,6 +455,19 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitEventStatement(EventStatement stmt) {
+        if (stmt.isNative()) {
+            if (stmt.fields().size() != 1) {
+                TVScript.compileError(new CompileError(stmt.name(), "Native event must have exactly one field."));
+            } else {
+                VarStatement field = stmt.fields().get(0);
+                if (field.type().type() != TokenType.IDENTIFIER || !field.type().lexeme().equals(stmt.name().lexeme())) {
+                    TVScript.compileError(new CompileError(field.type(), "Native event field type must match the event name."));
+                }
+                if (!nativeClasses.containsKey(stmt.name().lexeme())) {
+                    TVScript.compileError(new CompileError(stmt.name(), "Unknown native class '" + stmt.name().lexeme() + "' for native event."));
+                }
+            }
+        }
         for (VarStatement field : stmt.fields()) {
             check(field);
         }

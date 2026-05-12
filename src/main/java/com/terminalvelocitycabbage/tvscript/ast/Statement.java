@@ -179,7 +179,7 @@ public interface Statement {
         }
     }
 
-    record EventStatement(Token name, List<VarStatement> fields) implements Statement {
+    record EventStatement(Token name, List<VarStatement> fields, boolean isNative) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitEventStatement(this);
