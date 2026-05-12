@@ -110,6 +110,11 @@ public class Environment {
         return result.values();
     }
 
+    public void define(String name, Object value, TokenType type, boolean isConst) {
+        value = castIfNeeded(type, value);
+        values.put(name, new VariableInfo(value, type, isConst));
+    }
+
     /**
      * Defines a new variable in the current environment.
      * @param name The name of the variable.
@@ -130,6 +135,21 @@ public class Environment {
         if (values.containsKey(name)) return true;
         if (enclosing != null) return enclosing.isAlreadyDefinedAnywhere(name);
         return false;
+    }
+
+    /**
+     * Retrieves the value of a variable.
+     * @param name The name of the variable.
+     * @return The value of the variable.
+     */
+    public Object get(String name) {
+        if (values.containsKey(name)) {
+            return values.get(name).value;
+        }
+
+        if (enclosing != null) return enclosing.get(name);
+
+        return null;
     }
 
     /**

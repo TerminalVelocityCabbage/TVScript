@@ -174,6 +174,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     private final Environment configuredGlobals;
     private Environment environment;
+    private final EventSystem eventSystem;
 
     public Interpreter() {
         this(new Environment());
@@ -182,6 +183,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Interpreter(Environment configuredGlobals) {
         this.configuredGlobals = configuredGlobals;
         this.environment = new Environment(configuredGlobals);
+        this.eventSystem = new TVEventsEventSystem();
     }
 
     public void reset() {
@@ -196,6 +198,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         for (Statement statement : statements) {
             if (statement != null) execute(statement);
         }
+        eventSystem.dispatch("InitializedEvent", Map.of());
     }
 
     public Environment getEnvironment() {
@@ -256,6 +259,16 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     public Object evaluate(Expression expression) {
         if (expression == null) return null;
         return expression.accept(this);
+    }
+
+    public Object evaluate(Expression expression, Environment env) {
+        Environment previous = this.environment;
+        try {
+            this.environment = env;
+            return evaluate(expression);
+        } finally {
+            this.environment = previous;
+        }
     }
 
     @Override
@@ -1583,6 +1596,24 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     }
 
     @Override
+    public Void visitEventStatement(EventStatement stmt) {
+        eventSystem.registerEvent(stmt);
+        return null;
+    }
+
+    @Override
+    public Void visitOnStatement(OnStatement stmt) {
+        eventSystem.registerListener(stmt, this, environment);
+        return null;
+    }
+
+    @Override
+    public Void visitDispatchStatement(DispatchStatement stmt) {
+        eventSystem.dispatch(stmt.eventName(), stmt.arguments(), this, environment);
+        return null;
+    }
+
+    @Override
     public Void visitPassStatement(PassStatement stmt) {
         return null;
     }
@@ -1835,7 +1866,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         throw new RuntimeError(operator, "Operands must be numbers.");
     }
 
-    private boolean isTruthy(Token operator, Object object) {
+    public boolean isTruthy(Token operator, Object object) {
         if (object instanceof Boolean) return (boolean) object;
         if (operator == null) return false;
         throw new RuntimeError(operator, "Expected boolean value.");

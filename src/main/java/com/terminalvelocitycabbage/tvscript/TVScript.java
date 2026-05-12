@@ -102,17 +102,6 @@ public class TVScript {
 
         interpreter.interpret(statements);
 
-        // Execute main if it exists
-        Object main = null;
-        try {
-            main = interpreter.getEnvironment().get(new Token(TokenType.MAIN, "main", null, 0));
-        } catch (RuntimeError e) {
-            // Main not defined, that's okay for some scripts
-        }
-
-        if (main instanceof TVScriptFunction) {
-            ((TVScriptFunction) main).call(interpreter, java.util.Collections.emptyMap(), new Token(TokenType.MAIN, "main", null, 0));
-        }
     }
 
     /**

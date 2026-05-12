@@ -32,6 +32,9 @@ public interface Statement {
         default R visitTraitStatement(TraitStatement stmt) { return null; }
         default R visitTypeStatement(TypeStatement stmt) { return null; }
         default R visitConstraintStatement(ConstraintStatement stmt) { return null; }
+        default R visitEventStatement(EventStatement stmt) { return null; }
+        default R visitOnStatement(OnStatement stmt) { return null; }
+        default R visitDispatchStatement(DispatchStatement stmt) { return null; }
     }
 
     /**
@@ -173,6 +176,29 @@ public interface Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitTypeStatement(this);
+        }
+    }
+
+    record EventStatement(Token name, List<VarStatement> fields) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitEventStatement(this);
+        }
+    }
+
+    record OnStatement(Token eventName, List<ListenerParameter> parameters, Statement body) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitOnStatement(this);
+        }
+
+        public record ListenerParameter(Token type, Token name, Expression filter) {}
+    }
+
+    record DispatchStatement(Token eventName, List<Expression.Argument> arguments) implements Statement {
+        @Override
+        public <R> R accept(Visitor<R> visitor) {
+            return visitor.visitDispatchStatement(this);
         }
     }
 }

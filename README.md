@@ -34,15 +34,16 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] Generics
 - [ ] Error Handling (`try` / `catch` / `throw`)
 - [ ] Async Execution (`async` / `await` / `launch`)
-- [ ] Events & Event Listeners (`event` / `on` / `dispatch`)
+- [x] Events & Event Listeners (`event` / `on` / `dispatch`)
 - [ ] Annotations
 - [X] Native Classes
 - [x] Native Functions
+- [ ] Native Events and Listeners
 
 ### Ecosystem & Runtime
 - [ ] Module System (`import`)
 - [ ] Script Visibility Modifiers
-- [x] Main Entrypoints (`main`)
+- [x] Main Entrypoints (`on InitializedEvent`)
 - [ ] Bytecode Compilation (Currently Interpreted)
 
 ---
@@ -73,8 +74,8 @@ const integer e = 12
 var f = 10 // The compiler will replace with with `integer`
 const g = 12 // The compiler will replace with with `const integer`
 
-//The main entrypoint of a script is defined by the main keyword
-main:
+//The main entrypoint of a script is defined by the on InitializedEvent: block
+on InitializedEvent:
     sayHello()
     doRandomThings(a: 12)
 
@@ -951,17 +952,7 @@ print HorizontalLayout.LEFT.direction
 ```
 
 ## Executing scripts
-The primary way to execute a script is through it's main entrypoint, however there are more than one entrypoint type. The next section goes over events, which are a special type of entrypoint that are dispatched by an embedded engine. The main entrypoint however is defined as follows:
-```
-main(list[string] arguments):
-    for [string arg] in arguments:
-        print arg
-```
-This takes in some console arguments and prints them to the console. If you don't have any console arguments, you can omit the parenthesis entirely.
-```
-main:
-    pass
-```
+Scripts are executed in response to events. The most common entry point is the `on InitializedEvent:` block, which is triggered when the script is loaded.
 
 ## Events
 Events are defined similarly to the main entrypoint, but with the `event` keyword. Events typically have an "Event" suffix. Events can carry some data with them defined as fields, just like classes.
@@ -979,6 +970,15 @@ on PlayerJoinedEvent(Player player): //parameter names must match the names of t
   print "Welcome to the server {player.name}"
 ```
 Game engines are encouraged to define their own events that are dispatched by the engine and can be listened to by scripts.
+
+### Native Events
+Native events are defined in TVScript with a single field that maps to a native class.
+
+```ts
+event NativeEvent:
+    NativeClassMapping event
+```
+
 ### Pattern matching in Events
 Events can be dispatched with a pattern match. This lets you filter before any code in the event block is executed.
 

@@ -68,7 +68,8 @@ public class Parser {
             if (match(TRAIT)) return traitDeclaration();
             if (match(TYPE)) return typeDeclaration();
             if (match(CONSTRAINT)) return constraintDeclaration();
-            if (match(MAIN)) return mainDeclaration();
+            if (match(EVENT)) return eventDeclaration();
+            if (match(ON)) return onDeclaration();
             if (match(FUNCTION)) {
                 return functionDeclaration("function");
             }
@@ -173,6 +174,7 @@ public class Parser {
         if (match(RETURN)) return returnStatement();
         if (match(PRINT)) return printStatement();
         if (match(PASS)) return passStatement();
+        if (match(DISPATCH)) return dispatchStatement();
         if (match(INDENT)) return new BlockStatement(block());
 
         return expressionStatement();
@@ -352,33 +354,82 @@ public class Parser {
         return new ExpressionStatement(expr);
     }
 
-    private Statement mainDeclaration() {
-        Token keyword = previous();
-        List<FunctionStatement.Parameter> parameters = new ArrayList<>();
+    private Statement eventDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect event name.");
+        consume(COLON, "Expect ':' after event name.");
+
+        List<VarStatement> fields = new ArrayList<>();
+        if (match(NEWLINE)) {
+            consume(INDENT, "Expect indentation after newline in event definition.");
+            while (!check(DEDENT) && !isAtEnd()) {
+                if (match(NEWLINE)) continue;
+                Token type = consumeType("Expect field type.");
+                fields.add((VarStatement) varDeclaration(type));
+                if (!check(DEDENT) && !check(EOF)) {
+                    consume(NEWLINE, "Expect newline after event field.");
+                }
+            }
+            consume(DEDENT, "Expect dedent after event fields.");
+        } else {
+            Token type = consumeType("Expect field type.");
+            fields.add((VarStatement) varDeclaration(type));
+        }
+
+        return new EventStatement(name, fields);
+    }
+
+    private Statement onDeclaration() {
+        Token eventName = consume(IDENTIFIER, "Expect event name after 'on'.");
+
+        List<OnStatement.ListenerParameter> parameters = new ArrayList<>();
         if (match(LEFT_PAREN)) {
             if (!check(RIGHT_PAREN)) {
                 do {
-                    parameters.add(parameter());
+                    Token type = consumeType("Expect parameter type.");
+                    Token name = consume(IDENTIFIER, "Expect parameter name.");
+                    Expression filter = null;
+                    if (match(COLON)) {
+                        filter = expression();
+                    }
+                    parameters.add(new OnStatement.ListenerParameter(type, name, filter));
                 } while (match(COMMA));
             }
-            consume(RIGHT_PAREN, "Expect ')' after main parameters.");
+            consume(RIGHT_PAREN, "Expect ')' after parameters.");
         }
-        consume(COLON, "Expect ':' after main.");
+
+        consume(COLON, "Expect ':' before on body.");
 
         Statement body;
         if (match(NEWLINE)) {
-            consume(INDENT, "Expect indentation after newline in main.");
+            consume(INDENT, "Expect indentation after newline in 'on' listener.");
             body = new BlockStatement(block());
         } else {
             body = statement();
-            if (!(body instanceof BlockStatement)) {
-                List<Statement> stmts = new ArrayList<>();
-                stmts.add(body);
-                body = new BlockStatement(stmts);
-            }
         }
 
-        return new FunctionStatement(keyword, parameters, null, body, List.of(), false, false);
+        return new OnStatement(eventName, parameters, body);
+    }
+
+    private Statement dispatchStatement() {
+        Token eventName = consume(IDENTIFIER, "Expect event name after 'dispatch'.");
+
+        List<Argument> arguments = new ArrayList<>();
+        if (match(LEFT_PAREN)) {
+            if (!check(RIGHT_PAREN)) {
+                do {
+                    Token argName = null;
+                    if (check(IDENTIFIER) && checkNext(COLON)) {
+                        argName = advance();
+                        advance(); // consume ':'
+                    }
+                    Expression value = expression();
+                    arguments.add(new Argument(argName, value));
+                } while (match(COMMA));
+            }
+            consume(RIGHT_PAREN, "Expect ')' after arguments.");
+        }
+
+        return new DispatchStatement(eventName, arguments);
     }
 
     private Statement constraintDeclaration() {

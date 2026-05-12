@@ -29,6 +29,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final Map<String, TraitStatement> traits = new HashMap<>();
     private final Map<String, TypeStatement> types = new HashMap<>();
     private final Map<String, ConstraintStatement> constraints = new HashMap<>();
+    private final Map<String, EventStatement> events = new HashMap<>();
     private final Map<String, FunctionStatement> functions = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private final Map<String, NativeClass> nativeClasses = new HashMap<>();
@@ -91,6 +92,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 types.put(((TypeStatement) statement).name().lexeme(), (TypeStatement) statement);
             } else if (statement instanceof ConstraintStatement) {
                 constraints.put(((ConstraintStatement) statement).name().lexeme(), (ConstraintStatement) statement);
+            } else if (statement instanceof EventStatement) {
+                events.put(((EventStatement) statement).name().lexeme(), (EventStatement) statement);
             }
         }
 
@@ -446,6 +449,46 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 TVScript.compileError(new CompileError(traitConstraint,
                         "Unknown trait '" + traitConstraint.lexeme() + "' in constraint declaration."));
             }
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitEventStatement(EventStatement stmt) {
+        for (VarStatement field : stmt.fields()) {
+            check(field);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitOnStatement(OnStatement stmt) {
+        String eventName = stmt.eventName().lexeme();
+        if (!events.containsKey(eventName) && !"InitializedEvent".equals(eventName)) {
+            TVScript.compileError(new CompileError(stmt.eventName(), "Unknown event '" + eventName + "'."));
+        }
+
+        beginScope();
+        for (OnStatement.ListenerParameter param : stmt.parameters()) {
+            declare(param.name(), param.type().type(), param.type().lexeme(), true);
+            if (param.filter() != null) {
+                check(param.filter());
+            }
+        }
+        check(stmt.body());
+        endScope();
+        return null;
+    }
+
+    @Override
+    public Void visitDispatchStatement(DispatchStatement stmt) {
+        String eventName = stmt.eventName().lexeme();
+        if (!events.containsKey(eventName) && !"InitializedEvent".equals(eventName)) {
+            TVScript.compileError(new CompileError(stmt.eventName(), "Unknown event '" + eventName + "'."));
+        }
+
+        for (Expression.Argument arg : stmt.arguments()) {
+            check(arg.value());
         }
         return null;
     }

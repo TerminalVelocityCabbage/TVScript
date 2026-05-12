@@ -22,7 +22,7 @@ var f = 10 // The compiler will replace with with `integer`
 const g = 12 // The compiler will replace with with `const integer`
 
 //The main entrypoint of a script is defined by the main keyword
-main:
+on InitializedEvent:
     sayHello()
     doRandomThings(a: 12)
 

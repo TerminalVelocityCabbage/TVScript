@@ -54,7 +54,7 @@ public class InheritanceTraitTest {
                 constructor(string name):
                     super(name: name)
 
-            main:
+            on InitializedEvent:
                 Player p = new Player(name: "Junie")
                 p.onSpawn()
                 print p.health
@@ -82,7 +82,7 @@ public class InheritanceTraitTest {
                 override onSpawn():
                     print "player spawned {this.name}"
 
-            main:
+            on InitializedEvent:
                 Player p = new Player(name: "Junie")
                 p.onSpawn()
                 print p.health
@@ -109,7 +109,7 @@ public class InheritanceTraitTest {
                 override playSound():
                     print "beep"
 
-            main:
+            on InitializedEvent:
                 Actor a = new Actor()
                 a.playSound()
                 a.checkForDeath(health: 0)
@@ -135,7 +135,7 @@ public class InheritanceTraitTest {
                 override b():
                     print "override b"
             
-            main:
+            on InitializedEvent:
                 C c = new C()
                 c.a()
                 c.b()
@@ -157,7 +157,7 @@ public class InheritanceTraitTest {
                 
                 override printSomethingElse(): print "vector2d"
 
-            main:
+            on InitializedEvent:
                 vector2d point = new vector2d(x: 3.0, y: 4.0)
                 print point has PositionLike
                 print point is PositionLike
@@ -181,7 +181,7 @@ public class InheritanceTraitTest {
                 decimal x
                 decimal y
 
-            main:
+            on InitializedEvent:
                 vector2d point = new vector2d(x: 3.0, y: 4.0)
                 print point has PositionLike
                 print point has CoordinateLike
@@ -202,7 +202,7 @@ public class InheritanceTraitTest {
                 constructor():
                     pass
             
-            main:
+            on InitializedEvent:
                 B b = new B()
                 A a = b
                 print a is B
@@ -259,7 +259,7 @@ public class InheritanceTraitTest {
                     print HasConfig.MAX_HP
                     print HasConfig.NAME
             
-            main:
+            on InitializedEvent:
                 Actor a = new Actor()
                 a.printConfig()
                 print HasConfig.MAX_HP
@@ -280,7 +280,7 @@ public class InheritanceTraitTest {
                 printConfig():
                     print this.MAX_HP
             
-            main:
+            on InitializedEvent:
                 Actor a = new Actor()
                 a.printConfig()
             """;
@@ -301,7 +301,7 @@ public class InheritanceTraitTest {
                 constructor(string name):
                     super(name: name)
             
-            main:
+            on InitializedEvent:
                 Entity e = new Player(name: "Junie")
                 if e is Player -> p:
                     print p.name
