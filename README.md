@@ -776,54 +776,6 @@ class Vector2d:
   decimal y = 0
 ```
 
-### Native Classes and Methods
-TVScript also allows the embedded application to expose native classes and methods to your scripts. These can be used directly in your scripts, providing a bridge between the TVScript environment and the underlying application. To define a native class you prefix the class definition with the native keyword, and do the same with methods and an empty body.
-
-For the following Java class:
-```java
-package com.example.tvscript;
-
-public class Vector2d {
-    
-    public static final Vector2d UNIT_VECTOR = new Vector2d(1, 0);
-    
-    int x;
-    int y;
-    
-    public Vector2d(int x, int y) {
-        this.x = x;
-        this.y = y;
-    }
-    
-    public Vector2d add(Vector2d delta) {
-        return new Vector2d(x + delta.x, y + delta.y);
-    }
-}
-```
-you define the TVScript mapping like this:
-```
-native class com.example.tvscript.Vector2d as Vec2:
-  native integer x
-  native integer y
-  native const Vec2 UNIT_VECTOR
-  native constructor(integer x, integer y)
-  native add(Vec2 delta) -> Vec2
-```
-All elements of the native class must be implemented in TVScript to be accessible in your scripts. This allows the api developer to determine what is safe to expose to your scripts.
-Api developers can also define functionality to these classes which does not exist in the embedded application.
-```
-native class com.example.tvscript.Vector2d as Vec2:
-  native integer x
-  native integer y
-  native const Vec2 UNIT_VECTOR
-  native constructor(integer x, integer y)
-  native add(Vec2 delta) -> Vec2
-  
-  //Functionality unique to the TVScript environment
-  subtract(Vec2 delta) -> Vec2:
-    return new Vec2(x: x - delta.x, y: y - delta.y)
-```
-
 ## Types
 A type sounds like the same things as a class, but it has a few nuances for advanced users. Defining a type essentially registers a new primitive type that can be used like any other primitive type with operator overloads. These are used for storing and manipulating data in your scripts directly instead of in containers like classes. You define a type a lot like a class with the `type` keyword. Lets redefine Vector2D as a type:
 ```
