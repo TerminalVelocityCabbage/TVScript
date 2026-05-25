@@ -1,5 +1,7 @@
 package com.terminalvelocitycabbage.tvscript.execution;
 
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import com.terminalvelocitycabbage.tvscript.execution.values.*;
 import com.terminalvelocitycabbage.tvscript.util.AstUtils;
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
@@ -33,6 +35,7 @@ public class Interpreter {
     final Environment configuredGlobals;
     Environment environment;
     final EventSystem eventSystem;
+    private final DiagnosticReporter reporter;
 
     final Map<String, Map<String, String>> scriptImports = new HashMap<>();
     final Map<String, Map<String, String>> scriptQualifiedImports = new HashMap<>();
@@ -44,17 +47,30 @@ public class Interpreter {
     private final StatementInterpreter statementInterpreter = new StatementInterpreter(this);
 
     public Interpreter() {
-        this(new Environment());
+        this(new DefaultDiagnosticReporter());
+    }
+
+    public Interpreter(DiagnosticReporter reporter) {
+        this(new Environment(), reporter);
     }
 
     public Interpreter(Environment configuredGlobals) {
-        this(configuredGlobals, new TVEventsEventSystem());
+        this(configuredGlobals, new DefaultDiagnosticReporter());
+    }
+
+    public Interpreter(Environment configuredGlobals, DiagnosticReporter reporter) {
+        this(configuredGlobals, new TVEventsEventSystem(), reporter);
     }
 
     public Interpreter(Environment configuredGlobals, EventSystem eventSystem) {
+        this(configuredGlobals, eventSystem, new DefaultDiagnosticReporter());
+    }
+
+    public Interpreter(Environment configuredGlobals, EventSystem eventSystem, DiagnosticReporter reporter) {
         this.configuredGlobals = configuredGlobals;
         this.environment = new Environment(configuredGlobals);
         this.eventSystem = eventSystem;
+        this.reporter = reporter;
     }
 
     public void reset() {
@@ -90,6 +106,10 @@ public class Interpreter {
 
     public Environment getEnvironment() {
         return environment;
+    }
+
+    public DiagnosticReporter getReporter() {
+        return reporter;
     }
 
     public java.util.Collection<TVScriptNativeFunction> getNativeFunctions() {

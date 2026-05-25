@@ -10,32 +10,34 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.List;
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MatchTest {
+    private final DiagnosticReporter reporter = new DefaultDiagnosticReporter();
 
     private String run(String source) {
+        reporter.reset();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
         System.setOut(new PrintStream(out));
         try {
-            Scanner scanner = new Scanner(source);
+            Scanner scanner = new Scanner(source, reporter);
             List<Token> tokens = scanner.scanTokens();
-            Parser parser = new Parser(tokens);
+            Parser parser = new Parser(tokens, reporter);
             List<Statement> statements = parser.parseStatements();
-            if (TVScript.hadError) {
+            if (reporter.hasError()) {
                 throw new RuntimeException("Syntax Error");
             }
-            TypeChecker typeChecker = new TypeChecker();
+            TypeChecker typeChecker = new TypeChecker(reporter);
             typeChecker.check(statements);
-            if (TVScript.hadError) {
+            if (reporter.hasError()) {
                 throw new RuntimeException("Compile Error");
             }
-            Interpreter interpreter = new Interpreter();
+            Interpreter interpreter = new Interpreter(reporter);
             interpreter.interpret(statements);
         } finally {
-            TVScript.hadError = false;
-            TVScript.hadRuntimeError = false;
             System.setOut(originalOut);
         }
         return out.toString().trim();

@@ -1,6 +1,8 @@
 package com.terminalvelocitycabbage.tvscript.parsing;
 
 import com.terminalvelocitycabbage.tvscript.TVScript;
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
@@ -24,10 +26,16 @@ public class Parser {
     );
 
     private final List<Token> tokens;
+    private final DiagnosticReporter reporter;
     private int current = 0;
 
     public Parser(List<Token> tokens) {
+        this(tokens, new DefaultDiagnosticReporter());
+    }
+
+    public Parser(List<Token> tokens, DiagnosticReporter reporter) {
         this.tokens = tokens;
+        this.reporter = reporter;
     }
 
     /**
@@ -187,7 +195,7 @@ public class Parser {
         if (match(EQUAL)) {
             initializer = expression();
         } else if (isConst) {
-            TVScript.error(name, "Constant variable must be initialized.");
+            reporter.error(name, "Constant variable must be initialized.");
             throw new ParseError();
         }
 
@@ -574,7 +582,7 @@ public class Parser {
         consume(DEDENT, "Expect dedent after class body.");
 
         if (constructors.isEmpty() && !isNative) {
-            TVScript.error(name, "Class must have a constructor.");
+            reporter.error(name, "Class must have a constructor.");
             throw new ParseError();
         }
 
@@ -1008,7 +1016,7 @@ public class Parser {
                 return new IndexSetExpression(index.object(), index.bracket(), index.index(), value);
             }
 
-            TVScript.error(equals, "Invalid assignment target.");
+            reporter.error(equals, "Invalid assignment target.");
         }
 
         return expr;
@@ -1313,7 +1321,7 @@ public class Parser {
 
                     Token name = consume(IDENTIFIER, "Expect argument name.");
                     if (!argumentNames.add(name.lexeme())) {
-                        TVScript.error(name, "Duplicate argument '" + name.lexeme() + "'.");
+                        reporter.error(name, "Duplicate argument '" + name.lexeme() + "'.");
                         throw new ParseError();
                     }
                     consume(COLON, "Expect ':' after argument name.");
@@ -1637,7 +1645,7 @@ public class Parser {
     }
 
     private ParseError error(Token token, String message) {
-        TVScript.error(token, message);
+        reporter.error(token, message);
         return new ParseError();
     }
 

@@ -1,30 +1,27 @@
 package com.terminalvelocitycabbage.tvscript.analysis;
 
-import com.terminalvelocitycabbage.tvscript.TVScript;
-import com.terminalvelocitycabbage.tvscript.util.AstUtils;
+import com.terminalvelocitycabbage.tvscript.analysis.types.*;
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
-import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
-import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 import com.terminalvelocitycabbage.tvscript.ast.VisibleElement;
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import com.terminalvelocitycabbage.tvscript.execution.NativeClass;
 import com.terminalvelocitycabbage.tvscript.execution.TVScriptNativeFunction;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
+import com.terminalvelocitycabbage.tvscript.util.AstUtils;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+
+import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
+import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
 
 /**
  * Performs static type checking on the AST.
  */
-public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<TokenType> {
+public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<Type> {
 
     private final List<Map<String, VariableStaticInfo>> scopes = new ArrayList<>();
     private final Map<String, ClassStatement> classes = new HashMap<>();
@@ -44,6 +41,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private final Map<String, Map<String, String>> scriptQualifiedImports = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private final Map<String, NativeClass> nativeClasses = new HashMap<>();
+    private final DiagnosticReporter reporter;
     private int loopDepth = 0;
 
     private ClassStatement currentClass = null;
@@ -71,40 +69,41 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
 
     private static class VariableStaticInfo {
-        final TokenType type;
+        final Type type;
         final boolean isConst;
-        final TokenType returnType;
-        final String namedType;
 
-        VariableStaticInfo(TokenType type, boolean isConst) {
-            this(type, isConst, null, null);
-        }
-
-        VariableStaticInfo(TokenType type, boolean isConst, TokenType returnType) {
-            this(type, isConst, returnType, null);
-        }
-
-        VariableStaticInfo(TokenType type, boolean isConst, TokenType returnType, String namedType) {
+        VariableStaticInfo(Type type, boolean isConst) {
             this.type = type;
             this.isConst = isConst;
-            this.returnType = returnType;
-            this.namedType = namedType;
         }
     }
 
     public TypeChecker() {
-        this(List.of(), List.of());
+        this(new DefaultDiagnosticReporter());
+    }
+
+    public TypeChecker(DiagnosticReporter reporter) {
+        this(List.of(), List.of(), reporter);
     }
 
     public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions) {
-        this(nativeFunctions, List.of());
+        this(nativeFunctions, new DefaultDiagnosticReporter());
+    }
+
+    public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions, DiagnosticReporter reporter) {
+        this(nativeFunctions, List.of(), reporter);
     }
 
     public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions, Collection<NativeClass> nativeClasses) {
+        this(nativeFunctions, nativeClasses, new DefaultDiagnosticReporter());
+    }
+
+    public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions, Collection<NativeClass> nativeClasses, DiagnosticReporter reporter) {
+        this.reporter = reporter;
         Map<String, VariableStaticInfo> globalScope = new HashMap<>();
         for (TVScriptNativeFunction nativeFunction : nativeFunctions) {
             String name = nativeFunction.name();
-            globalScope.put(name, new VariableStaticInfo(TokenType.FUNCTION, true, nativeFunction.returnType()));
+            globalScope.put(name, new VariableStaticInfo(resolveType(nativeFunction.returnType()), true));
             nativeFunctionNames.add(name);
             
             // Also register them in our definitions for name resolution
@@ -159,7 +158,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 String className = klass.name().lexeme();
                 String fullName = scriptId + "." + className;
                 if (classes.containsKey(fullName) && !classes.get(fullName).equals(statement)) {
-                    TVScript.compileError(new CompileError(klass.name(), "Class '" + fullName + "' is already defined."));
+                    reporter.compileError(new CompileError(klass.name(), "Class '" + fullName + "' is already defined."));
                 }
                 classes.put(fullName, klass);
                 classScriptPaths.put(fullName, scriptPath);
@@ -214,8 +213,95 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         stmt.accept(this);
     }
 
-    private TokenType check(Expression expr) {
+    private Type check(Expression expr) {
+        if (expr == null) return PrimitiveType.VOID;
         return expr.accept(this);
+    }
+
+    private Type resolveType(Token typeToken) {
+        if (typeToken == null) return PrimitiveType.VOID;
+        
+        String lexeme = typeToken.lexeme();
+        if (lexeme != null && lexeme.contains("[")) {
+            // Parameterized type like list[integer] or map[string|integer]
+            int openBracket = lexeme.indexOf('[');
+            int closeBracket = lexeme.lastIndexOf(']');
+            String baseTypeName = lexeme.substring(0, openBracket);
+            String innerTypes = lexeme.substring(openBracket + 1, closeBracket);
+            
+            TokenType baseType = switch (baseTypeName) {
+                case "list" -> TokenType.LIST;
+                case "set" -> TokenType.SET;
+                case "map" -> TokenType.MAP;
+                default -> TokenType.IDENTIFIER;
+            };
+
+            if (baseType == TokenType.MAP) {
+                String[] parts = innerTypes.split("\\|");
+                Type keyType = resolveTypeFromName(parts[0].trim());
+                Type valueType = resolveTypeFromName(parts[1].trim());
+                return new CollectionType(TokenType.MAP, List.of(keyType, valueType));
+            } else if (baseType == TokenType.LIST || baseType == TokenType.SET) {
+                Type elementType = resolveTypeFromName(innerTypes.trim());
+                return new CollectionType(baseType, List.of(elementType));
+            }
+        }
+
+        return resolveType(typeToken.type(), typeToken.lexeme());
+    }
+
+    private Type resolveTypeFromName(String name) {
+        return switch (name) {
+            case "integer" -> PrimitiveType.INTEGER;
+            case "decimal" -> PrimitiveType.DECIMAL;
+            case "boolean" -> PrimitiveType.BOOLEAN;
+            case "string" -> PrimitiveType.STRING;
+            case "range" -> PrimitiveType.RANGE;
+            case "none" -> PrimitiveType.NONE;
+            default -> {
+                if (name.contains("[")) {
+                    yield resolveType(new Token(TokenType.NONE, name, null, 0));
+                }
+                if (classes.containsKey(name)) yield new ClassType(name);
+                if (traits.containsKey(name)) yield new TraitType(name);
+                yield new ClassType(name); // Generic or unknown yet
+            }
+        };
+    }
+
+    private Type resolveType(TokenType type) {
+        return resolveType(type, null);
+    }
+
+    private Type resolveType(TokenType type, String namedType) {
+        if (namedType != null) {
+            if (namedType.contains("[")) {
+                return resolveType(new Token(type, namedType, null, 0));
+            }
+            if (classes.containsKey(namedType)) return new ClassType(namedType);
+            if (traits.containsKey(namedType)) return new TraitType(namedType);
+        }
+
+        return switch (type) {
+            case TYPE_INTEGER -> PrimitiveType.INTEGER;
+            case TYPE_DECIMAL -> PrimitiveType.DECIMAL;
+            case TYPE_BOOLEAN -> PrimitiveType.BOOLEAN;
+            case TYPE_STRING -> PrimitiveType.STRING;
+            case TYPE_RANGE -> PrimitiveType.RANGE;
+            case LIST, SET, MAP -> {
+                // If we got here, it's a raw collection type without parameters in lexeme
+                // Default to ANY or Object if possible, but TVScript might expect parameters
+                yield new CollectionType(type, List.of(PrimitiveType.VOID));
+            }
+            case NONE -> PrimitiveType.NONE;
+            case FUNCTION -> PrimitiveType.VOID; // Placeholder
+            default -> PrimitiveType.VOID;
+        };
+    }
+
+    private boolean isCompatible(Type target, Type source) {
+        if (target == null || source == null) return false;
+        return source.isAssignableTo(target);
     }
 
     @Override
@@ -243,7 +329,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (type == TokenType.IDENTIFIER) {
                 type = TokenType.CLASS;
             }
-            declare(tbe.alias(), type, true);
+            declare(tbe.alias(), resolveType(type), true);
             
             check(stmt.thenBranch());
             endScope();
@@ -254,9 +340,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             return null;
         }
 
-        TokenType conditionType = check(stmt.condition());
-        if (conditionType != TokenType.TYPE_BOOLEAN) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "Condition must be boolean."));
+        Type conditionType = check(stmt.condition());
+        if (conditionType != PrimitiveType.BOOLEAN) {
+            reporter.compileError(new CompileError(stmt.keyword(), "Condition must be boolean."));
         }
         check(stmt.thenBranch());
         if (stmt.elseBranch() != null) {
@@ -267,21 +353,21 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitWhileStatement(WhileStatement stmt) {
-        TokenType conditionType = check(stmt.condition());
-        if (conditionType != TokenType.TYPE_BOOLEAN) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "While condition must be a boolean."));
+        Type conditionType = check(stmt.condition());
+        if (conditionType != PrimitiveType.BOOLEAN) {
+            reporter.compileError(new CompileError(stmt.keyword(), "While condition must be a boolean."));
         }
 
         // Infinite loop detection
         if (stmt.condition() instanceof LiteralExpression) {
             Object value = ((LiteralExpression) stmt.condition()).value();
             if (Boolean.TRUE.equals(value)) {
-                TVScript.warning(stmt.keyword(), "Potential infinite loop: constant true condition.");
+                reporter.warning(stmt.keyword(), "Potential infinite loop: constant true condition.");
             }
         } else {
             List<String> vars = getVariablesUsed(stmt.condition());
             if (!vars.isEmpty() && !isMutated(stmt.body(), vars)) {
-                TVScript.warning(stmt.keyword(), "Potential infinite loop: condition variables are not mutated in the loop body.");
+                reporter.warning(stmt.keyword(), "Potential infinite loop: condition variables are not mutated in the loop body.");
             }
         }
 
@@ -294,26 +380,26 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitForStatement(ForStatement stmt) {
-        TokenType iterableType = check(stmt.range());
-        if (iterableType != TokenType.TYPE_RANGE
-                && iterableType != TokenType.IDENTIFIER
-                && iterableType != TokenType.LIST
-                && iterableType != TokenType.SET
-                && iterableType != TokenType.MAP
+        Type iterableType = check(stmt.range());
+        if (iterableType != PrimitiveType.RANGE
+                && iterableType.toTokenType() != TokenType.IDENTIFIER
+                && iterableType.toTokenType() != TokenType.LIST
+                && iterableType.toTokenType() != TokenType.SET
+                && iterableType.toTokenType() != TokenType.MAP
                 && iterableType != null) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "For loop expects a range or collection."));
+            reporter.compileError(new CompileError(stmt.keyword(), "For loop expects a range or collection."));
         }
 
-        if (stmt.valueName() != null && iterableType == TokenType.TYPE_RANGE) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "Range iteration supports only a single loop variable."));
+        if (stmt.valueName() != null && iterableType == PrimitiveType.RANGE) {
+            reporter.compileError(new CompileError(stmt.keyword(), "Range iteration supports only a single loop variable."));
         }
 
         beginScope();
         if (stmt.name() != null) {
-            declare(stmt.name(), stmt.type().type(), false);
+            declare(stmt.name(), resolveType(stmt.type()), false);
         }
         if (stmt.valueName() != null) {
-            declare(stmt.valueName(), stmt.valueType().type(), false);
+            declare(stmt.valueName(), resolveType(stmt.valueType()), false);
         }
 
         loopDepth++;
@@ -327,7 +413,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     @Override
     public Void visitBreakStatement(BreakStatement stmt) {
         if (loopDepth == 0) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "Cannot use 'break' outside of a loop."));
+            reporter.compileError(new CompileError(stmt.keyword(), "Cannot use 'break' outside of a loop."));
         }
         return null;
     }
@@ -335,20 +421,20 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     @Override
     public Void visitContinueStatement(ContinueStatement stmt) {
         if (loopDepth == 0) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "Cannot use 'continue' outside of a loop."));
+            reporter.compileError(new CompileError(stmt.keyword(), "Cannot use 'continue' outside of a loop."));
         }
         return null;
     }
 
     @Override
     public Void visitMatchStatement(MatchStatement stmt) {
-        TokenType conditionType = check(stmt.condition());
+        Type conditionType = check(stmt.condition());
 
         for (MatchStatement.Case matchCase : stmt.cases()) {
             for (Expression pattern : matchCase.patterns()) {
-                TokenType patternType = check(pattern);
+                Type patternType = check(pattern);
                 if (patternType != null && !isCompatible(conditionType, patternType) && !isCompatible(patternType, conditionType)) {
-                     TVScript.compileError(new CompileError(stmt.keyword(), "Pattern type " + patternType + " is not compatible with condition type " + conditionType + "."));
+                     reporter.compileError(new CompileError(stmt.keyword(), "Pattern type " + patternType + " is not compatible with condition type " + conditionType + "."));
                 }
             }
             check(matchCase.branch());
@@ -357,7 +443,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         if (stmt.defaultBranch() != null) {
             check(stmt.defaultBranch());
         } else if (!isExhaustive(conditionType, stmt.cases())) {
-            TVScript.compileError(new CompileError(stmt.keyword(), "Match statement must be exhaustive. Add a 'default' case."));
+            reporter.compileError(new CompileError(stmt.keyword(), "Match statement must be exhaustive. Add a 'default' case."));
         }
 
         return null;
@@ -434,7 +520,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (targetPath == null) targetPath = currentScriptPath;
             if (targetModule == null) targetModule = currentModule;
             if (!checkVisibility(name, element.visibility().type(), targetPath, targetModule)) {
-                TVScript.compileError(new CompileError(name, 
+                reporter.compileError(new CompileError(name, 
                     element.visibility().type().name().toLowerCase() + " " + name.lexeme() + " is not accessible from here."));
             }
         }
@@ -445,7 +531,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (targetPath == null) targetPath = currentScriptPath;
             if (targetModule == null) targetModule = currentModule;
             if (!checkVisibility(name, element.visibility().type(), targetPath, targetModule)) {
-                TVScript.compileError(new CompileError(name, 
+                reporter.compileError(new CompileError(name, 
                     element.visibility().type().name().toLowerCase() + " " + name.lexeme() + " is not accessible from here."));
             }
         }
@@ -454,12 +540,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     @Override
     public Void visitFunctionStatement(FunctionStatement stmt) {
         if (stmt.name().type() != TokenType.CONSTRUCTOR) {
-            declare(stmt.name(), TokenType.FUNCTION, true, stmt.returnType() != null ? stmt.returnType().type() : null);
+            declare(stmt.name(), PrimitiveType.VOID, true); // Function type placeholder
             functions.put(stmt.name().lexeme(), stmt);
         }
         beginScope();
         for (FunctionStatement.Parameter param : stmt.parameters()) {
-            declare(param.name(), param.type().type(), param.type().type() == TokenType.IDENTIFIER ? param.type().lexeme() : null, false);
+            declare(param.name(), resolveType(param.type()), false);
         }
         if (stmt.body() != null) {
             check(stmt.body());
@@ -484,44 +570,44 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         if (stmt.isNative()) {
             nativeClass = nativeClasses.get(stmt.name().lexeme());
             if (nativeClass == null) {
-                TVScript.compileError(new CompileError(stmt.name(), "'" + stmt.name().lexeme() + "' not defined as a native class type on the global environment."));
+                reporter.compileError(new CompileError(stmt.name(), "'" + stmt.name().lexeme() + "' not defined as a native class type on the global environment."));
                 currentClass = previousClass;
                 return null;
             }
 
             if (!stmt.constructors().isEmpty()) {
-                TVScript.compileError(new CompileError(stmt.name(), "Native classes cannot declare constructors."));
+                reporter.compileError(new CompileError(stmt.name(), "Native classes cannot declare constructors."));
             }
             for (VarStatement field : stmt.fields()) {
                 if (!field.isConst()) {
-                    TVScript.compileError(new CompileError(field.name(), "Native classes cannot declare instance fields."));
+                    reporter.compileError(new CompileError(field.name(), "Native classes cannot declare instance fields."));
                 }
             }
             for (FunctionStatement method : stmt.methods()) {
                 if (nativeClass.methods().containsKey(method.name().lexeme())) {
-                    TVScript.compileError(new CompileError(method.name(),
+                    reporter.compileError(new CompileError(method.name(),
                             "Native class '" + stmt.name().lexeme() + "' cannot override native member '" + method.name().lexeme() + "'."));
                 }
             }
         }
 
-        declare(stmt.name(), TokenType.CLASS, true);
+        declare(stmt.name(), resolveType(TokenType.CLASS), true);
         
         // Check trait conflicts and missing implementations
         checkTraitImplementations(stmt);
         
         // Scope for instance fields and methods
         beginScope();
-        declare(new Token(TokenType.THIS, "this", null, 0), TokenType.CLASS, true);
+        declare(new Token(TokenType.THIS, "this", null, 0), resolveType(TokenType.CLASS), true);
         if (stmt.superclass() != null) {
-            declare(new Token(TokenType.SUPER, "super", null, 0), TokenType.CLASS, true);
+            declare(new Token(TokenType.SUPER, "super", null, 0), resolveType(TokenType.CLASS), true);
         }
         
         // Declare fields from superclasses
         declareInheritedFields(stmt);
         
         for (VarStatement field : stmt.fields()) {
-            declare(field.name(), field.type().type(), field.isConst());
+            declare(field.name(), resolveType(field.type()), field.isConst());
         }
         
         for (VarStatement field : stmt.fields()) {
@@ -555,7 +641,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (superclass != null) {
                 declareInheritedFields(superclass);
                 for (VarStatement field : superclass.fields()) {
-                    declare(field.name(), field.type().type(), field.isConst());
+                    declare(field.name(), resolveType(field.type()), field.isConst());
                 }
             }
         }
@@ -564,11 +650,11 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitTraitStatement(TraitStatement stmt) {
-        declare(stmt.name(), TokenType.TRAIT, true);
+        declare(stmt.name(), resolveType(TokenType.TRAIT), true);
         beginScope();
         for (VarStatement field : stmt.fields()) {
             if (field.initializer() != null) check(field.initializer());
-            declare(field.name(), field.type().type(), field.isConst());
+            declare(field.name(), resolveType(field.type()), field.isConst());
         }
         for (FunctionStatement method : stmt.methods()) {
             check(method);
@@ -582,27 +668,27 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         TypeStatement previousType = currentType;
         currentType = stmt;
 
-        declare(stmt.name(), TokenType.CLASS, stmt.name().lexeme(), true);
+        declare(stmt.name(), resolveType(TokenType.CLASS, stmt.name().lexeme()), true);
 
         for (Token traitToken : stmt.traits()) {
             if (!traits.containsKey(traitToken.lexeme())) {
-                TVScript.compileError(new CompileError(traitToken, "Only traits can be implemented."));
+                reporter.compileError(new CompileError(traitToken, "Only traits can be implemented."));
             }
         }
 
         checkTypeTraitImplementations(stmt);
 
         beginScope();
-        declare(new Token(TokenType.THIS, "this", null, 0), TokenType.IDENTIFIER, stmt.name().lexeme(), true);
+        declare(new Token(TokenType.THIS, "this", null, 0), resolveType(TokenType.IDENTIFIER, stmt.name().lexeme()), true);
 
         for (VarStatement field : stmt.fields()) {
             if (!field.isConst()) {
-                TVScript.compileError(new CompileError(field.name(), "Type fields are immutable and must be declared as constants."));
+                reporter.compileError(new CompileError(field.name(), "Type fields are immutable and must be declared as constants."));
             }
             if (field.initializer() != null) {
                 check(field.initializer());
             }
-            declare(field.name(), field.type().type(), field.type().type() == TokenType.IDENTIFIER ? field.type().lexeme() : null, true);
+            declare(field.name(), resolveType(field.type()), true);
         }
 
         for (FunctionStatement method : stmt.methods()) {
@@ -613,7 +699,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             validateTypeOperator(stmt, operator);
             beginScope();
             for (FunctionStatement.Parameter parameter : operator.parameters()) {
-                declare(parameter.name(), parameter.type().type(), parameter.type().type() == TokenType.IDENTIFIER ? parameter.type().lexeme() : null, false);
+                declare(parameter.name(), resolveType(parameter.type()), false);
             }
             if (operator.body() != null) {
                 check(operator.body());
@@ -633,7 +719,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
         for (Token traitConstraint : stmt.traitConstraints()) {
             if (!traits.containsKey(traitConstraint.lexeme())) {
-                TVScript.compileError(new CompileError(traitConstraint,
+                reporter.compileError(new CompileError(traitConstraint,
                         "Unknown trait '" + traitConstraint.lexeme() + "' in constraint declaration."));
             }
         }
@@ -644,14 +730,14 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public Void visitEventStatement(EventStatement stmt) {
         if (stmt.isNative()) {
             if (stmt.fields().size() != 1) {
-                TVScript.compileError(new CompileError(stmt.name(), "Native event must have exactly one field."));
+                reporter.compileError(new CompileError(stmt.name(), "Native event must have exactly one field."));
             } else {
                 VarStatement field = stmt.fields().get(0);
                 if (field.type().type() != TokenType.IDENTIFIER || !field.type().lexeme().equals(stmt.name().lexeme())) {
-                    TVScript.compileError(new CompileError(field.type(), "Native event field type must match the event name."));
+                    reporter.compileError(new CompileError(field.type(), "Native event field type must match the event name."));
                 }
                 if (!nativeClasses.containsKey(stmt.name().lexeme())) {
-                    TVScript.compileError(new CompileError(stmt.name(), "Unknown native class '" + stmt.name().lexeme() + "' for native event."));
+                    reporter.compileError(new CompileError(stmt.name(), "Unknown native class '" + stmt.name().lexeme() + "' for native event."));
                 }
             }
         }
@@ -665,12 +751,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public Void visitOnStatement(OnStatement stmt) {
         String eventName = stmt.eventName().lexeme();
         if (!events.containsKey(eventName) && !"InitializedEvent".equals(eventName)) {
-            TVScript.compileError(new CompileError(stmt.eventName(), "Unknown event '" + eventName + "'."));
+            reporter.compileError(new CompileError(stmt.eventName(), "Unknown event '" + eventName + "'."));
         }
 
         beginScope();
         for (OnStatement.ListenerParameter param : stmt.parameters()) {
-            declare(param.name(), param.type().type(), param.type().lexeme(), true);
+            declare(param.name(), resolveType(param.type().type(), param.type().lexeme()), true);
             if (param.filter() != null) {
                 check(param.filter());
             }
@@ -684,7 +770,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public Void visitDispatchStatement(DispatchStatement stmt) {
         String eventName = stmt.eventName().lexeme();
         if (!events.containsKey(eventName) && !"InitializedEvent".equals(eventName)) {
-            TVScript.compileError(new CompileError(stmt.eventName(), "Unknown event '" + eventName + "'."));
+            reporter.compileError(new CompileError(stmt.eventName(), "Unknown event '" + eventName + "'."));
         }
 
         for (Expression.Argument arg : stmt.arguments()) {
@@ -699,17 +785,17 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         if ("negative".equals(operatorName)) {
             if (parameters.size() != 1 || !"right".equals(parameters.get(0).name().lexeme())) {
-                TVScript.compileError(new CompileError(operator.name(), "Operator parameter must be named right."));
+                reporter.compileError(new CompileError(operator.name(), "Operator parameter must be named right."));
             }
         } else {
             if (parameters.size() != 2 || !"left".equals(parameters.get(0).name().lexeme()) || !"right".equals(parameters.get(1).name().lexeme())) {
-                TVScript.compileError(new CompileError(operator.name(), "Operator parameters must be named left and right."));
+                reporter.compileError(new CompileError(operator.name(), "Operator parameters must be named left and right."));
             }
         }
 
         if ("compare".equals(operatorName)) {
-            if (operator.returnType() == null || operator.returnType().type() != TokenType.TYPE_DECIMAL) {
-                TVScript.compileError(new CompileError(operator.name(), "Operator compare must return decimal."));
+            if (operator.returnType() == null || resolveType(operator.returnType().type()) != PrimitiveType.DECIMAL) {
+                reporter.compileError(new CompileError(operator.name(), "Operator compare must return decimal."));
             }
         }
 
@@ -717,7 +803,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (parameter.type().type() == TokenType.IDENTIFIER) {
                 String typeName = parameter.type().lexeme();
                 if (!classes.containsKey(typeName) && !types.containsKey(typeName)) {
-                    TVScript.compileError(new CompileError(parameter.type(), "Unknown type '" + typeName + "' in operator declaration."));
+                    reporter.compileError(new CompileError(parameter.type(), "Unknown type '" + typeName + "' in operator declaration."));
                 }
             }
         }
@@ -725,12 +811,12 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         if (operator.returnType() != null && operator.returnType().type() == TokenType.IDENTIFIER) {
             String returnTypeName = operator.returnType().lexeme();
             if (!classes.containsKey(returnTypeName) && !types.containsKey(returnTypeName)) {
-                TVScript.compileError(new CompileError(operator.returnType(), "Unknown return type '" + returnTypeName + "' in operator declaration."));
+                reporter.compileError(new CompileError(operator.returnType(), "Unknown return type '" + returnTypeName + "' in operator declaration."));
             }
         }
     }
 
-    private boolean isExhaustive(TokenType type, List<?> cases) {
+    private boolean isExhaustive(Type type, List<?> cases) {
         // TODO: Implement actual exhaustiveness checking
         return false; 
     }
@@ -743,38 +829,31 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitVarStatement(VarStatement stmt) {
-        TokenType declaredType = stmt.type().type();
-        TokenType inferredType = declaredType;
-        String declaredNamedType = declaredType == TokenType.IDENTIFIER ? stmt.type().lexeme() : null;
-        String inferredNamedType = declaredNamedType;
+        TokenType declaredToken = stmt.type().type();
+        Type declaredType = resolveType(stmt.type());
+        Type inferredType = declaredType;
 
-        if (declaredType == TokenType.IDENTIFIER) {
+        if (declaredToken == TokenType.IDENTIFIER) {
             validateGenericTypeConstraints(stmt.type());
         }
 
         if (stmt.initializer() != null) {
             inferredType = check(stmt.initializer());
-            inferredNamedType = inferNamedType(stmt.initializer());
-            if (declaredType == TokenType.VAR || declaredType == TokenType.CONST) {
-                if (inferredType == null) {
-                    TVScript.compileError(new CompileError(stmt.name(), "Cannot infer type from none."));
+            if (declaredToken == TokenType.VAR || declaredToken == TokenType.CONST) {
+                if (inferredType == PrimitiveType.NONE) {
+                    reporter.compileError(new CompileError(stmt.name(), "Cannot infer type from none."));
                 }
-            } else if (declaredType == TokenType.IDENTIFIER) {
-                if (inferredNamedType != null && declaredNamedType != null && !isAssignableNamedType(declaredNamedType, inferredNamedType)) {
-                    TVScript.compileError(new CompileError(stmt.name(), "Incompatible types in initialization."));
-                }
-            } else if (inferredType != null && !isCompatible(declaredType, inferredType)) {
-                TVScript.compileError(new CompileError(stmt.name(), "Incompatible types in initialization."));
+            } else if (!isCompatible(declaredType, inferredType)) {
+                reporter.compileError(new CompileError(stmt.name(), "Incompatible types in initialization. Expected " + declaredType + " but got " + inferredType + "."));
             }
         } else if (stmt.isConst()) {
-            TVScript.compileError(new CompileError(stmt.name(), "Constant must be initialized."));
-        } else if (declaredType == TokenType.VAR || declaredType == TokenType.CONST) {
-            TVScript.compileError(new CompileError(stmt.name(), "Type inference requires an initializer."));
+            reporter.compileError(new CompileError(stmt.name(), "Constant must be initialized."));
+        } else if (declaredToken == TokenType.VAR || declaredToken == TokenType.CONST) {
+            reporter.compileError(new CompileError(stmt.name(), "Type inference requires an initializer."));
         }
 
-        TokenType finalType = (declaredType == TokenType.VAR || declaredType == TokenType.CONST) ? inferredType : declaredType;
-        String finalNamedType = (declaredType == TokenType.VAR || declaredType == TokenType.CONST) ? inferredNamedType : declaredNamedType;
-        declare(stmt.name(), finalType, finalNamedType, stmt.isConst());
+        Type finalType = (declaredToken == TokenType.VAR || declaredToken == TokenType.CONST) ? inferredType : declaredType;
+        declare(stmt.name(), finalType, stmt.isConst());
         return null;
     }
 
@@ -784,84 +863,84 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     @Override
-    public TokenType visitBinaryExpression(BinaryExpression expr) {
-        TokenType left = check(expr.left());
-        TokenType right = check(expr.right());
+    public Type visitBinaryExpression(BinaryExpression expr) {
+        Type left = check(expr.left());
+        Type right = check(expr.right());
 
         switch (expr.operator().type()) {
             case GREATER:
             case GREATER_EQUAL:
             case LESS:
             case LESS_EQUAL:
-                return TokenType.TYPE_BOOLEAN;
+                return PrimitiveType.BOOLEAN;
             case MINUS:
             case SLASH:
             case STAR:
             case PERCENT:
-                if (left == TokenType.TYPE_INTEGER && right == TokenType.TYPE_INTEGER) {
-                    return TokenType.TYPE_INTEGER;
+                if (left == PrimitiveType.INTEGER && right == PrimitiveType.INTEGER) {
+                    return PrimitiveType.INTEGER;
                 }
-                return TokenType.TYPE_DECIMAL;
+                return PrimitiveType.DECIMAL;
             case PLUS:
-                if (left == TokenType.TYPE_STRING || right == TokenType.TYPE_STRING) {
-                    return TokenType.TYPE_STRING;
+                if (left == PrimitiveType.STRING || right == PrimitiveType.STRING) {
+                    return PrimitiveType.STRING;
                 }
-                if (left == TokenType.TYPE_INTEGER && right == TokenType.TYPE_INTEGER) {
-                    return TokenType.TYPE_INTEGER;
+                if (left == PrimitiveType.INTEGER && right == PrimitiveType.INTEGER) {
+                    return PrimitiveType.INTEGER;
                 }
-                return TokenType.TYPE_DECIMAL;
+                return PrimitiveType.DECIMAL;
             case BANG_EQUAL:
             case EQUAL_EQUAL:
-                return TokenType.TYPE_BOOLEAN;
+                return PrimitiveType.BOOLEAN;
             default:
-                return null;
+                return PrimitiveType.VOID;
         }
     }
 
     @Override
-    public TokenType visitGroupingExpression(GroupingExpression expr) {
+    public Type visitGroupingExpression(GroupingExpression expr) {
         return check(expr.expression());
     }
 
     @Override
-    public TokenType visitLiteralExpression(LiteralExpression expr) {
-        if (expr.value() instanceof Integer) return TokenType.TYPE_INTEGER;
-        if (expr.value() instanceof Double) return TokenType.TYPE_DECIMAL;
-        if (expr.value() instanceof String) return TokenType.TYPE_STRING;
-        if (expr.value() instanceof Boolean) return TokenType.TYPE_BOOLEAN;
-        if (expr.value() == null) return TokenType.NONE;
+    public Type visitLiteralExpression(LiteralExpression expr) {
+        if (expr.value() instanceof Integer) return PrimitiveType.INTEGER;
+        if (expr.value() instanceof Double) return PrimitiveType.DECIMAL;
+        if (expr.value() instanceof String) return PrimitiveType.STRING;
+        if (expr.value() instanceof Boolean) return PrimitiveType.BOOLEAN;
+        if (expr.value() == null) return PrimitiveType.NONE;
         return null;
     }
 
     @Override
-    public TokenType visitLogicalExpression(LogicalExpression expr) {
+    public Type visitLogicalExpression(LogicalExpression expr) {
         check(expr.left());
         check(expr.right());
-        return TokenType.TYPE_BOOLEAN;
+        return PrimitiveType.BOOLEAN;
     }
 
     @Override
-    public TokenType visitUnaryExpression(UnaryExpression expr) {
-        TokenType right = check(expr.right());
-        if (expr.operator().type() == TokenType.BANG) return TokenType.TYPE_BOOLEAN;
+    public Type visitUnaryExpression(UnaryExpression expr) {
+        Type right = check(expr.right());
+        if (expr.operator().type() == TokenType.BANG) return PrimitiveType.BOOLEAN;
         return right;
     }
 
     @Override
-    public TokenType visitTernaryExpression(TernaryExpression expr) {
+    public Type visitTernaryExpression(TernaryExpression expr) {
         check(expr.condition());
-        TokenType trueBranch = check(expr.thenBranch());
-        TokenType falseBranch = check(expr.elseBranch());
+        Type trueBranch = check(expr.thenBranch());
+        Type falseBranch = check(expr.elseBranch());
         // TODO: Properly check if branches are compatible
         return trueBranch;
     }
 
     @Override
-    public TokenType visitInterpolationExpression(InterpolationExpression expr) {
+    public Type visitInterpolationExpression(InterpolationExpression expr) {
         for (Expression e : expr.expressions()) {
             check(e);
         }
-        return TokenType.TYPE_STRING;
+        return PrimitiveType.STRING;
     }
 
     private String resolveImport(String name) {
@@ -881,7 +960,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     @Override
-    public TokenType visitVariableExpression(VariableExpression expr) {
+    public Type visitVariableExpression(VariableExpression expr) {
         VariableStaticInfo info = lookup(expr.name());
         
         // If not in scope, check global classes, functions, etc.
@@ -902,11 +981,11 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     if (targetPath == null) targetPath = currentScriptPath;
                     if (targetModule == null) targetModule = currentModule;
                     if (!checkVisibility(expr.name(), klass.visibility().type(), targetPath, targetModule)) {
-                         TVScript.compileError(new CompileError(expr.name(), 
+                         reporter.compileError(new CompileError(expr.name(), 
                             klass.visibility().type().name().toLowerCase() + " class '" + name + "' is not accessible from here."));
                     }
                 }
-                return TokenType.CLASS;
+                return resolveType(TokenType.CLASS, name);
             }
             
             if (functions.containsKey(name)) {
@@ -917,11 +996,11 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     if (targetPath == null) targetPath = currentScriptPath;
                     if (targetModule == null) targetModule = currentModule;
                     if (!checkVisibility(expr.name(), func.visibility().type(), targetPath, targetModule)) {
-                         TVScript.compileError(new CompileError(expr.name(), 
+                         reporter.compileError(new CompileError(expr.name(), 
                             func.visibility().type().name().toLowerCase() + " function '" + name + "' is not accessible from here."));
                     }
                 }
-                return TokenType.FUNCTION;
+                return resolveType(TokenType.FUNCTION);
             }
 
             if (globalVars.containsKey(name)) {
@@ -932,83 +1011,73 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     if (targetPath == null) targetPath = currentScriptPath;
                     if (targetModule == null) targetModule = currentModule;
                     if (!checkVisibility(expr.name(), var.visibility().type(), targetPath, targetModule)) {
-                        TVScript.compileError(new CompileError(expr.name(),
+                        reporter.compileError(new CompileError(expr.name(),
                                 var.visibility().type().name().toLowerCase() + " variable '" + name + "' is not accessible from here."));
                     }
                 }
-                return var.type().type();
+                return resolveType(var.type().type(), var.type().type() == TokenType.IDENTIFIER ? var.type().lexeme() : null);
             }
             
-            if (traits.containsKey(name)) return TokenType.TRAIT;
-            if (types.containsKey(name)) return TokenType.TYPE;
-            if (events.containsKey(name)) return TokenType.EVENT;
+            if (traits.containsKey(name)) return resolveType(TokenType.TRAIT, name);
+            if (types.containsKey(name)) return resolveType(TokenType.TYPE, name);
+            if (events.containsKey(name)) return resolveType(TokenType.EVENT, name);
 
-            TVScript.compileError(new CompileError(expr.name(), "Variable used before declaration or undefined."));
-            return null;
+            reporter.compileError(new CompileError(expr.name(), "Variable used before declaration or undefined."));
+            return PrimitiveType.VOID;
         }
 
         return info.type;
     }
 
     @Override
-    public TokenType visitNativeExpression(NativeExpression expr) {
+    public Type visitNativeExpression(NativeExpression expr) {
         String name = expr.name().lexeme();
         if (!nativeFunctionNames.contains(name)) {
-            TVScript.compileError(new CompileError(expr.keyword(), "'" + name + "' is not a native function."));
+            reporter.compileError(new CompileError(expr.keyword(), "'" + name + "' is not a native function."));
             return null;
         }
 
-        VariableStaticInfo info = lookup(expr.name());
-        if (info == null || info.type != TokenType.FUNCTION) {
-            TVScript.compileError(new CompileError(expr.keyword(), "'" + name + "' is not a native function."));
-            return null;
-        }
-
-        return TokenType.FUNCTION;
+        return resolveType(TokenType.FUNCTION);
     }
 
     @Override
-    public TokenType visitAssignExpression(AssignExpression expr) {
-        TokenType valueType = check(expr.value());
+    public Type visitAssignExpression(AssignExpression expr) {
+        Type valueType = check(expr.value());
         VariableStaticInfo info = lookup(expr.name());
         if (info != null) {
             if (info.isConst) {
-                TVScript.compileError(new CompileError(expr.name(), "Cannot assign to constant variable."));
+                reporter.compileError(new CompileError(expr.name(), "Cannot assign to constant variable."));
             }
             if (valueType != null && !isCompatible(info.type, valueType)) {
-                 TVScript.compileError(new CompileError(expr.name(), "Incompatible types in assignment."));
+                 reporter.compileError(new CompileError(expr.name(), "Incompatible types in assignment."));
             }
         } else {
-             TVScript.compileError(new CompileError(expr.name(), "Variable undefined."));
+             reporter.compileError(new CompileError(expr.name(), "Variable undefined."));
         }
         return valueType;
     }
 
     @Override
-    public TokenType visitRangeExpression(RangeExpression expr) {
-        TokenType start = check(expr.start());
-        TokenType end = check(expr.end());
+    public Type visitRangeExpression(RangeExpression expr) {
+        Type start = check(expr.start());
+        Type end = check(expr.end());
 
-        if (start != TokenType.TYPE_INTEGER || end != TokenType.TYPE_INTEGER) {
-            TVScript.compileError(new CompileError(expr.operator(), "Range bounds must be integers."));
-        }
-
-        return TokenType.TYPE_RANGE;
+        return resolveType(TokenType.TYPE_RANGE);
     }
 
     @Override
-    public TokenType visitMatchExpression(MatchExpression expr) {
-        TokenType conditionType = check(expr.condition());
-        TokenType resultType = null;
+    public Type visitMatchExpression(MatchExpression expr) {
+        Type conditionType = check(expr.condition());
+        Type resultType = null;
 
         for (MatchExpression.Case matchCase : expr.cases()) {
             for (Expression pattern : matchCase.patterns()) {
-                TokenType patternType = check(pattern);
+                Type patternType = check(pattern);
                 if (patternType != null && !isCompatible(conditionType, patternType) && !isCompatible(patternType, conditionType)) {
-                    TVScript.compileError(new CompileError(expr.keyword(), "Pattern type " + patternType + " is not compatible with condition type " + conditionType + "."));
+                    reporter.compileError(new CompileError(expr.keyword(), "Pattern type " + patternType + " is not compatible with condition type " + conditionType + "."));
                 }
             }
-            TokenType branchType = check(matchCase.branch());
+            Type branchType = check(matchCase.branch());
             if (resultType == null) {
                 resultType = branchType;
             } else if (branchType != null && !isCompatible(resultType, branchType)) {
@@ -1016,32 +1085,32 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 if (isCompatible(branchType, resultType)) {
                     resultType = branchType;
                 } else {
-                    TVScript.compileError(new CompileError(expr.keyword(), "Incompatible types in match expression branches."));
+                    reporter.compileError(new CompileError(expr.keyword(), "Incompatible types in match expression branches."));
                 }
             }
         }
 
         if (expr.defaultBranch() != null) {
-            TokenType defaultType = check(expr.defaultBranch());
+            Type defaultType = check(expr.defaultBranch());
             if (resultType == null) {
                 resultType = defaultType;
             } else if (defaultType != null && !isCompatible(resultType, defaultType)) {
                  if (isCompatible(defaultType, resultType)) {
                     resultType = defaultType;
                 } else {
-                    TVScript.compileError(new CompileError(expr.keyword(), "Incompatible types in match expression branches."));
+                    reporter.compileError(new CompileError(expr.keyword(), "Incompatible types in match expression branches."));
                 }
             }
         } else if (!isExhaustive(conditionType, expr.cases())) {
-            TVScript.compileError(new CompileError(expr.keyword(), "Match expression must be exhaustive. Add a 'default' case."));
+            reporter.compileError(new CompileError(expr.keyword(), "Match expression must be exhaustive. Add a 'default' case."));
         }
 
         return resultType;
     }
 
     @Override
-    public TokenType visitCallExpression(CallExpression expr) {
-        TokenType calleeType = check(expr.callee());
+    public Type visitCallExpression(CallExpression expr) {
+        Type calleeType = check(expr.callee());
         for (CallExpression.Argument arg : expr.arguments()) {
             check(arg.value());
         }
@@ -1050,63 +1119,66 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             String calleeName = varExpr.name().lexeme();
 
             if (expr.nativeCall() && !nativeFunctionNames.contains(calleeName)) {
-                TVScript.compileError(new CompileError(varExpr.name(), "'" + calleeName + "' is not a native function."));
+                reporter.compileError(new CompileError(varExpr.name(), "'" + calleeName + "' is not a native function."));
             }
 
             if (!expr.nativeCall() && nativeFunctionNames.contains(calleeName)) {
-                TVScript.compileError(new CompileError(varExpr.name(), "Native functions must be called with 'native'."));
+                reporter.compileError(new CompileError(varExpr.name(), "Native functions must be called with 'native'."));
             }
 
             VariableStaticInfo info = lookup(varExpr.name());
-            if (info != null && info.type == TokenType.FUNCTION) {
+            if (info != null && info.type.toTokenType() == TokenType.FUNCTION) {
                 FunctionStatement functionDefinition = functions.get(calleeName);
                 if (functionDefinition != null) {
                     validateFunctionTypeArguments(varExpr.name(), functionDefinition, expr.typeArguments());
                 }
-                return info.returnType;
+                // Return type is still a bit hard without full FunctionType integration
+                // For now, let's try to resolve it from the function definition if available
+                if (functionDefinition != null && functionDefinition.returnType() != null) {
+                    return resolveType(functionDefinition.returnType());
+                }
+                return PrimitiveType.VOID;
             }
-        } else if (expr.nativeCall()) {
-            TVScript.compileError(new CompileError(expr.paren(), "Native calls must target a global function name."));
-        } else if (calleeType == TokenType.FUNCTION) {
-             // If we don't know the exact return type but it's a function, maybe return FUNCTION?
-             // But usually it should return something more specific.
-             // For now, let's return null to avoid making things too complex, but it might break var inference.
+        } else if (calleeType instanceof FunctionType func) {
+             return func.getReturnType();
+        } else if (calleeType != null && calleeType.toTokenType() == TokenType.FUNCTION) {
+             // ...
         }
 
         return null;
     }
 
     @Override
-    public TokenType visitFunctionExpression(FunctionExpression expr) {
+    public Type visitFunctionExpression(FunctionExpression expr) {
         beginScope();
         for (FunctionStatement.Parameter param : expr.parameters()) {
-            declare(param.name(), param.type().type(), param.type().type() == TokenType.IDENTIFIER ? param.type().lexeme() : null, false);
+            declare(param.name(), resolveType(param.type().type(), param.type().type() == TokenType.IDENTIFIER ? param.type().lexeme() : null), false);
         }
         check(expr.body());
         endScope();
-        return TokenType.FUNCTION;
+        return resolveType(TokenType.FUNCTION);
     }
 
 
     @Override
-    public TokenType visitGetExpression(GetExpression expr) {
+    public Type visitGetExpression(GetExpression expr) {
         // Try resolving as a qualified name first: path.to.Script.Member or Alias.Member
         String fullName = AstUtils.flattenQualifiedName(expr);
         if (fullName != null) {
             if (classes.containsKey(fullName)) {
                 ClassStatement klass = classes.get(fullName);
                 checkQualifiedVisibility(expr.name(), klass, classScriptPaths.get(fullName), classModules.get(fullName));
-                return TokenType.CLASS;
+                return resolveType(TokenType.CLASS);
             }
             if (functions.containsKey(fullName)) {
                 FunctionStatement func = functions.get(fullName);
                 checkQualifiedVisibility(expr.name(), func, functionScriptPaths.get(fullName), functionModules.get(fullName));
-                return TokenType.FUNCTION;
+                return resolveType(TokenType.FUNCTION);
             }
             if (globalVars.containsKey(fullName)) {
                 VarStatement var = globalVars.get(fullName);
                 checkQualifiedVisibility(expr.name(), var, varScriptPaths.get(fullName), varModules.get(fullName));
-                return var.type().type();
+                return resolveType(var.type().type());
             }
 
             // Check if the object is an alias
@@ -1119,23 +1191,38 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     if (classes.containsKey(resolvedName)) {
                         ClassStatement klass = classes.get(resolvedName);
                         checkQualifiedVisibility(expr.name(), klass, classScriptPaths.get(resolvedName), classModules.get(resolvedName));
-                        return TokenType.CLASS;
+                        return resolveType(TokenType.CLASS);
                     }
                     if (functions.containsKey(resolvedName)) {
                         FunctionStatement func = functions.get(resolvedName);
                         checkQualifiedVisibility(expr.name(), func, functionScriptPaths.get(resolvedName), functionModules.get(resolvedName));
-                        return TokenType.FUNCTION;
+                        return resolveType(TokenType.FUNCTION);
                     }
                     if (globalVars.containsKey(resolvedName)) {
                         VarStatement var = globalVars.get(resolvedName);
                         checkQualifiedVisibility(expr.name(), var, varScriptPaths.get(resolvedName), varModules.get(resolvedName));
-                        return var.type().type();
+                        return resolveType(var.type().type());
                     }
                 }
             }
         }
 
-        TokenType objectType = check(expr.object());
+        Type objectType = check(expr.object());
+
+        if (objectType instanceof CollectionType coll) {
+            String methodName = expr.name().lexeme();
+            // Basic support for collection methods
+            return switch (methodName) {
+                case "size" -> new FunctionType(List.of(), PrimitiveType.INTEGER);
+                case "add" -> new FunctionType(List.of(coll.getElementTypes().get(0)), PrimitiveType.VOID);
+                case "remove" -> new FunctionType(List.of(coll.toTokenType() == TokenType.MAP ? coll.getElementTypes().get(0) : PrimitiveType.INTEGER), PrimitiveType.VOID);
+                case "pop" -> new FunctionType(List.of(), coll.getElementTypes().get(0));
+                case "get" -> new FunctionType(List.of(coll.getElementTypes().get(0)), coll.getElementTypes().get(1)); // Map only
+                case "put" -> new FunctionType(List.of(coll.getElementTypes().get(0), coll.getElementTypes().get(1)), PrimitiveType.VOID); // Map only
+                case "slice" -> new FunctionType(List.of(PrimitiveType.INTEGER), coll);
+                default -> PrimitiveType.VOID;
+            };
+        }
 
         if (expr.object() instanceof ThisExpression) {
             VariableStaticInfo info = lookup(expr.name());
@@ -1143,14 +1230,14 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             
             // Check if it's a method
             if (currentClass != null && hasMethod(currentClass, expr.name().lexeme())) {
-                return TokenType.FUNCTION;
+                return resolveType(TokenType.FUNCTION);
             }
             if (currentType != null && hasTypeMethod(currentType, expr.name().lexeme())) {
-                return TokenType.FUNCTION;
+                return resolveType(TokenType.FUNCTION);
             }
             
-            TVScript.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on 'this'."));
-            return null;
+            reporter.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on 'this'."));
+            return PrimitiveType.VOID;
         }
 
         if (expr.object() instanceof VariableExpression varExpr) {
@@ -1159,28 +1246,29 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             if (traits.containsKey(variableName)) {
                 TraitStatement trait = traits.get(variableName);
                 TokenType fieldType = findFieldInTrait(trait, expr.name().lexeme());
-                if (fieldType != null) return fieldType;
+                if (fieldType != null) return resolveType(fieldType);
                 
-                TVScript.compileError(new CompileError(expr.name(), "Undefined trait constant '" + expr.name().lexeme() + "'."));
+                reporter.compileError(new CompileError(expr.name(), "Undefined trait constant '" + expr.name().lexeme() + "'."));
             }
 
             VariableStaticInfo info = lookup(varExpr.name());
-            if (info != null && info.namedType != null) {
-                TypeStatement typeStatement = types.get(info.namedType);
+            String namedType = info != null ? info.type.getNamedType() : null;
+            if (info != null && namedType != null) {
+                TypeStatement typeStatement = types.get(namedType);
                 if (typeStatement != null) {
                     for (VarStatement field : typeStatement.fields()) {
                         if (field.name().lexeme().equals(expr.name().lexeme())) {
-                            return field.type().type();
+                            return resolveType(field.type().type());
                         }
                     }
                     if (hasTypeMethod(typeStatement, expr.name().lexeme())) {
-                        return TokenType.FUNCTION;
+                        return resolveType(TokenType.FUNCTION);
                     }
-                    TVScript.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on type '" + info.namedType + "'."));
-                    return null;
+                    reporter.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on type '" + namedType + "'."));
+                    return PrimitiveType.VOID;
                 }
                 
-                ClassStatement classStatement = classes.get(info.namedType);
+                ClassStatement classStatement = classes.get(namedType);
                 if (classStatement != null) {
                     // Check instance fields
                     for (VarStatement field : classStatement.fields()) {
@@ -1189,18 +1277,18 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                             TokenType visibility = field.visibility() != null ? field.visibility().type() : TokenType.PRIVATE;
                             
                             // Get the target script path and module for this class. 
-                            String targetScriptPath = classScriptPaths.get(info.namedType);
-                            String targetModule = classModules.get(info.namedType);
+                            String targetScriptPath = classScriptPaths.get(namedType);
+                            String targetModule = classModules.get(namedType);
                             
                             // Hack for single-file tests: if targetScriptPath is null, it's the current one
                             if (targetScriptPath == null) targetScriptPath = currentScriptPath;
                             if (targetModule == null) targetModule = currentModule;
 
                             if (!checkVisibility(expr.name(), visibility, targetScriptPath, targetModule)) {
-                                TVScript.compileError(new CompileError(expr.name(), 
+                                reporter.compileError(new CompileError(expr.name(), 
                                     visibility.name().toLowerCase() + " field '" + expr.name().lexeme() + "' is not accessible from here."));
                             }
-                            return field.type().type();
+                            return resolveType(field.type().type());
                         }
                     }
                     
@@ -1208,16 +1296,16 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     for (FunctionStatement method : classStatement.methods()) {
                          if (method.name().lexeme().equals(expr.name().lexeme())) {
                              TokenType visibility = method.visibility() != null ? method.visibility().type() : TokenType.PRIVATE;
-                             String targetScriptPath = classScriptPaths.get(info.namedType);
-                             String targetModule = classModules.get(info.namedType);
+                             String targetScriptPath = classScriptPaths.get(namedType);
+                             String targetModule = classModules.get(namedType);
                              if (targetScriptPath == null) targetScriptPath = currentScriptPath;
                              if (targetModule == null) targetModule = currentModule;
                              
                              if (!checkVisibility(expr.name(), visibility, targetScriptPath, targetModule)) {
-                                 TVScript.compileError(new CompileError(expr.name(), 
+                                 reporter.compileError(new CompileError(expr.name(), 
                                      visibility.name().toLowerCase() + " method '" + expr.name().lexeme() + "' is not accessible from here."));
                              }
-                             return TokenType.FUNCTION;
+                             return resolveType(TokenType.FUNCTION);
                          }
                     }
                 }
@@ -1300,29 +1388,30 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     @Override
-    public TokenType visitSetExpression(SetExpression expr) {
+    public Type visitSetExpression(SetExpression expr) {
         check(expr.object());
         if (expr.object() instanceof VariableExpression varExpr) {
             VariableStaticInfo info = lookup(varExpr.name());
-            if (info != null && info.namedType != null && types.containsKey(info.namedType)) {
-                TVScript.compileError(new CompileError(expr.name(), "Type fields are immutable."));
+            String namedType = info != null ? info.type.getNamedType() : null;
+            if (info != null && namedType != null && types.containsKey(namedType)) {
+                reporter.compileError(new CompileError(expr.name(), "Type fields are immutable."));
             }
         }
         return check(expr.value());
     }
 
     @Override
-    public TokenType visitThisExpression(ThisExpression expr) {
+    public Type visitThisExpression(ThisExpression expr) {
         VariableStaticInfo info = lookup(expr.keyword());
         if (info == null) {
-            TVScript.compileError(new CompileError(expr.keyword(), "Cannot use 'this' outside of a class method."));
+            reporter.compileError(new CompileError(expr.keyword(), "Cannot use 'this' outside of a class method."));
             return null;
         }
         return info.type;
     }
 
     @Override
-    public TokenType visitNewExpression(NewExpression expr) {
+    public Type visitNewExpression(NewExpression expr) {
         check(expr.callee());
 
         if (expr.callee() instanceof VariableExpression variableExpression) {
@@ -1338,7 +1427,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     if (targetModule == null) targetModule = currentModule;
                     
                     if (!checkVisibility(variableExpression.name(), classStatement.visibility().type(), targetPath, targetModule)) {
-                        TVScript.compileError(new CompileError(variableExpression.name(), 
+                        reporter.compileError(new CompileError(variableExpression.name(), 
                             "Cannot access " + classStatement.visibility().type().name().toLowerCase() + " class '" + className + "' from outside its scope."));
                     }
                 }
@@ -1356,7 +1445,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 if (classStatement.isNative()) {
                     NativeClass nativeClass = nativeClasses.get(className);
                     if (nativeClass != null && nativeClass.constructors().isEmpty()) {
-                        TVScript.compileError(new CompileError(expr.keyword(), "Native class '" + className + "' has no constructors."));
+                        reporter.compileError(new CompileError(expr.keyword(), "Native class '" + className + "' has no constructors."));
                     }
                 }
             }
@@ -1365,7 +1454,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         for (Argument arg : expr.arguments()) {
             check(arg.value());
         }
-        return TokenType.CLASS;
+        return resolveType(TokenType.CLASS);
     }
 
     private String inferNamedType(Expression initializer) {
@@ -1431,7 +1520,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
 
         if (expected != typeArguments.size()) {
-            TVScript.compileError(new CompileError(callSite,
+            reporter.compileError(new CompileError(callSite,
                     "Type argument count mismatch for function '" + functionDefinition.name().lexeme()
                             + "': expected " + expected + ", got " + typeArguments.size() + "."));
         }
@@ -1465,7 +1554,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     private void validateTypeArgumentsAgainstParameters(Token callSite, String ownerName, List<GenericParameter> parameters, List<String> argumentNames) {
         if (parameters.size() != argumentNames.size()) {
-            TVScript.compileError(new CompileError(callSite,
+            reporter.compileError(new CompileError(callSite,
                     "Type argument count mismatch for '" + ownerName + "': expected " + parameters.size()
                             + ", got " + argumentNames.size() + "."));
             return;
@@ -1482,7 +1571,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
             if (effectiveConstraint.superclassConstraint() != null
                     && !isAssignableNamedType(effectiveConstraint.superclassConstraint().lexeme(), argumentBase)) {
-                TVScript.compileError(new CompileError(callSite,
+                reporter.compileError(new CompileError(callSite,
                         "Type argument '" + argumentNames.get(i) + "' violates constraint for '"
                                 + parameter.name().lexeme() + "'."));
                 continue;
@@ -1490,7 +1579,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
             for (Token traitConstraint : effectiveConstraint.traitConstraints()) {
                 if (!classImplementsTrait(argumentBase, traitConstraint.lexeme())) {
-                    TVScript.compileError(new CompileError(callSite,
+                    reporter.compileError(new CompileError(callSite,
                             "Type argument '" + argumentNames.get(i) + "' violates constraint for '"
                                     + parameter.name().lexeme() + "': missing trait '"
                                     + traitConstraint.lexeme() + "'."));
@@ -1521,7 +1610,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         String name = constraint.name().lexeme();
         if (!visited.add(name)) {
-            TVScript.compileError(new CompileError(constraint.name(),
+            reporter.compileError(new CompileError(constraint.name(),
                     "Circular constraint reference detected for '" + name + "'."));
             return null;
         }
@@ -1546,7 +1635,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         ConstraintStatement constraint = constraints.get(name);
         if (constraint == null) {
             if (!classes.containsKey(name)) {
-                TVScript.compileError(new CompileError(constraintOrClassName,
+                reporter.compileError(new CompileError(constraintOrClassName,
                         "Unknown class or constraint '" + name + "'."));
                 return null;
             }
@@ -1652,19 +1741,59 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     private record ParsedNamedType(String baseName, List<String> arguments) {}
 
     @Override
-    public TokenType visitSuperExpression(SuperExpression expr) {
-        return TokenType.CLASS; // Simple for now
+    public Type visitCollectionLiteralExpression(CollectionLiteralExpression expr) {
+        if (expr.collectionType().type() == TokenType.MAP) {
+            Type keyType = PrimitiveType.VOID;
+            Type valueType = PrimitiveType.VOID;
+            if (!expr.entries().isEmpty()) {
+                keyType = check(expr.entries().get(0).key());
+                valueType = check(expr.entries().get(0).value());
+            }
+            return new CollectionType(TokenType.MAP, List.of(keyType, valueType));
+        } else {
+            Type elementType = PrimitiveType.VOID;
+            if (!expr.elements().isEmpty()) {
+                elementType = check(expr.elements().get(0));
+            }
+            return new CollectionType(expr.collectionType().type(), List.of(elementType));
+        }
     }
 
     @Override
-    public TokenType visitTypeBinaryExpression(TypeBinaryExpression expr) {
+    public Type visitIndexExpression(IndexExpression expr) {
+        Type objectType = check(expr.object());
+        Type indexType = check(expr.index());
+        
+        if (objectType instanceof CollectionType coll) {
+            if (indexType == PrimitiveType.RANGE) {
+                // Slicing returns the same collection type
+                return coll;
+            }
+            if (coll.toTokenType() == TokenType.LIST) {
+                return coll.getElementTypes().get(0);
+            }
+            if (coll.toTokenType() == TokenType.MAP) {
+                return coll.getElementTypes().get(1);
+            }
+        }
+        
+        return null;
+    }
+
+    @Override
+    public Type visitTypeBinaryExpression(TypeBinaryExpression expr) {
         check(expr.left());
         if (expr.operator().type() == TokenType.AS) {
             TokenType type = expr.typeName().type();
-            if (type == TokenType.IDENTIFIER) return TokenType.CLASS;
-            return type;
+            if (type == TokenType.IDENTIFIER) return resolveType(TokenType.CLASS);
+            return resolveType(type);
         }
-        return TokenType.TYPE_BOOLEAN;
+        return resolveType(TokenType.TYPE_BOOLEAN);
+    }
+
+    @Override
+    public Type visitSuperExpression(SuperExpression expr) {
+        return resolveType(TokenType.CLASS); // Simple for now
     }
 
     private record AbstractMethodInfo(Token name, String traitName) {}
@@ -1690,7 +1819,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             List<String> providers = entry.getValue();
 
             if (providers.size() > 1 && !typeMethods.contains(methodName)) {
-                TVScript.compileError(new CompileError(stmt.name(),
+                reporter.compileError(new CompileError(stmt.name(),
                         "Type '" + stmt.name().lexeme() + "' must override method '" + methodName +
                                 "' because it is provided by multiple traits: " + providers));
             }
@@ -1701,7 +1830,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         for (Map.Entry<String, AbstractMethodInfo> entry : abstractMethods.entrySet()) {
             if (!typeMethods.contains(entry.getKey())) {
                 AbstractMethodInfo info = entry.getValue();
-                TVScript.compileError(new CompileError(stmt.name(),
+                reporter.compileError(new CompileError(stmt.name(),
                         "Type '" + stmt.name().lexeme() + "' must implement method '" + entry.getKey() + "' from trait " + info.traitName() + "."));
             }
         }
@@ -1729,7 +1858,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
             List<String> providers = entry.getValue();
 
             if (providers.size() > 1 && !classMethods.contains(methodName)) {
-                TVScript.compileError(new CompileError(stmt.name(),
+                reporter.compileError(new CompileError(stmt.name(),
                     "Class '" + stmt.name().lexeme() + "' must override method '" + methodName +
                     "' because it is provided by multiple traits: " + providers));
             }
@@ -1741,7 +1870,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         for (Map.Entry<String, AbstractMethodInfo> entry : abstractMethods.entrySet()) {
             if (!classMethods.contains(entry.getKey())) {
                 AbstractMethodInfo info = entry.getValue();
-                TVScript.compileError(new CompileError(stmt.name(),
+                reporter.compileError(new CompileError(stmt.name(),
                     "Class '" + stmt.name().lexeme() + "' must implement method '" + entry.getKey() + "' from trait " + info.traitName() + "."));
             }
         }
@@ -1811,29 +1940,17 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         scopes.remove(scopes.size() - 1);
     }
 
-    private void declare(Token name, TokenType type, boolean isConst) {
-        declare(name, type, null, isConst, null);
-    }
-
-    private void declare(Token name, TokenType type, boolean isConst, TokenType returnType) {
-        declare(name, type, null, isConst, returnType);
-    }
-
-    private void declare(Token name, TokenType type, String namedType, boolean isConst) {
-        declare(name, type, namedType, isConst, null);
-    }
-
-    private void declare(Token name, TokenType type, String namedType, boolean isConst, TokenType returnType) {
+    private void declare(Token name, Type type, boolean isConst) {
         if (scopes.isEmpty()) return;
         
         // Redefinition in the same scope is always an error
         Map<String, VariableStaticInfo> scope = scopes.get(scopes.size() - 1);
         if (scope.containsKey(name.lexeme())) {
-            TVScript.compileError(new CompileError(name, "Variable '" + name.lexeme() + "' is already defined in this scope."));
+            reporter.compileError(new CompileError(name, "Variable '" + name.lexeme() + "' is already defined in this scope."));
             return;
         }
 
-        scope.put(name.lexeme(), new VariableStaticInfo(type, isConst, returnType, namedType));
+        scope.put(name.lexeme(), new VariableStaticInfo(type, isConst));
     }
 
     private boolean isAlreadyDefined(String name) {
@@ -1853,13 +1970,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     }
 
     private boolean isCompatible(TokenType expected, TokenType actual) {
-        if (expected == actual) return true;
-        if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_INTEGER) return true;
-        if (expected == TokenType.TYPE_INTEGER && actual == TokenType.TYPE_RANGE) return true;
-        if (expected == TokenType.TYPE_DECIMAL && actual == TokenType.TYPE_RANGE) return true;
-        if (expected == TokenType.IDENTIFIER && actual == TokenType.CLASS) return true;
-        if (expected == TokenType.CLASS && actual == TokenType.IDENTIFIER) return true;
-        return false;
+        return resolveType(expected).isAssignableTo(resolveType(actual));
     }
 
     private List<String> getVariablesUsed(Expression expression) {

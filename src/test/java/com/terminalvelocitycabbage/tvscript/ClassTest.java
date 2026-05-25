@@ -17,9 +17,12 @@ import com.terminalvelocitycabbage.tvscript.execution.Interpreter;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
 
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ClassTest {
+    private final DiagnosticReporter reporter = new DefaultDiagnosticReporter();
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final PrintStream originalOut = System.out;
 
@@ -34,20 +37,19 @@ class ClassTest {
     }
 
     private void run(String source) {
-        TVScript.hadError = false;
-        TVScript.hadRuntimeError = false;
+        reporter.reset();
 
-        Scanner scanner = new Scanner(source);
+        Scanner scanner = new Scanner(source, reporter);
         List<Token> tokens = scanner.scanTokens();
-        Parser parser = new Parser(tokens);
+        Parser parser = new Parser(tokens, reporter);
         List<Statement> statements = parser.parseStatements();
-        if (TVScript.hadError) throw new RuntimeException("Parse error");
+        if (reporter.hasError()) throw new RuntimeException("Parse error");
 
-        TypeChecker typeChecker = new TypeChecker();
+        TypeChecker typeChecker = new TypeChecker(reporter);
         typeChecker.check(statements);
-        if (TVScript.hadError) throw new RuntimeException("Type check error");
+        if (reporter.hasError()) throw new RuntimeException("Type check error");
 
-        Interpreter interpreter = new Interpreter();
+        Interpreter interpreter = new Interpreter(reporter);
         interpreter.interpret(statements);
     }
 

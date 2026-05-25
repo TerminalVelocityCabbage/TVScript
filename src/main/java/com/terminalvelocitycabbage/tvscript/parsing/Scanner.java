@@ -2,6 +2,8 @@ package com.terminalvelocitycabbage.tvscript.parsing;
 
 import com.terminalvelocitycabbage.tvscript.TVScript;
 
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -11,6 +13,7 @@ import java.util.Stack;
 public class Scanner {
 
     private final String source;
+    private final DiagnosticReporter reporter;
     private final List<Token> tokens = new ArrayList<>();
     private int start = 0;
     private int current = 0;
@@ -91,8 +94,13 @@ public class Scanner {
     private char detectedIndentChar = '\0';
 
     public Scanner(String source) {
+        this(source, new DefaultDiagnosticReporter());
+    }
+
+    public Scanner(String source, DiagnosticReporter reporter) {
         this.source = source;
-        indentLevels.push(0);
+        this.reporter = reporter;
+        this.indentLevels.push(0);
     }
 
     public List<Token> scanTokens() {
@@ -247,7 +255,7 @@ public class Scanner {
                 } else if (isAlpha(c)) {
                     identifier();
                 } else {
-                    TVScript.error(line, "Unexpected character: " + c);
+                    reporter.error(line, "Unexpected character: " + c);
                 }
                 break;
         }
@@ -273,7 +281,7 @@ public class Scanner {
         if (detectedIndentChar == '\0' && (spaces > 0 || tabs > 0)) {
             if (tabs > 0) {
                 if (spaces > 0) {
-                    TVScript.error(line, "Mixed tabs and spaces in indentation.");
+                    reporter.error(line, "Mixed tabs and spaces in indentation.");
                 }
                 detectedIndentChar = '\t';
                 detectedIndentSize = 1;
@@ -287,10 +295,10 @@ public class Scanner {
 
         int currentIndent;
         if (detectedIndentChar == '\t') {
-            if (spaces > 0) TVScript.error(line, "Mixed tabs and spaces in indentation.");
+            if (spaces > 0) reporter.error(line, "Mixed tabs and spaces in indentation.");
             currentIndent = tabs;
         } else if (detectedIndentChar == ' ') {
-            if (tabs > 0) TVScript.error(line, "Mixed tabs and spaces in indentation.");
+            if (tabs > 0) reporter.error(line, "Mixed tabs and spaces in indentation.");
             // Allow any number of spaces, but calculate level by multiples of detectedIndentSize
             currentIndent = spaces / detectedIndentSize;
         } else {
@@ -353,7 +361,7 @@ public class Scanner {
 
             if (peek() == '\n') {
                 if (!isScanningTripleQuotedString) {
-                    TVScript.error(line, "Unterminated string at line " + line);
+                    reporter.error(line, "Unterminated string at line " + line);
                     return;
                 }
                 line++;
@@ -361,7 +369,7 @@ public class Scanner {
             advance();
         }
 
-        TVScript.error(line, "Unterminated string at line " + line);
+        reporter.error(line, "Unterminated string at line " + line);
     }
 
     private void number() {

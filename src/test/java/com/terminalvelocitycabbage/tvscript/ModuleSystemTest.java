@@ -19,9 +19,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ModuleSystemTest {
+    private final DiagnosticReporter reporter = new DefaultDiagnosticReporter();
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final PrintStream originalOut = System.out;
 
@@ -60,20 +63,18 @@ class ModuleSystemTest {
     }
 
     private void runAll(String mainScriptPath) {
-        TVScript.hadError = false;
-        TVScript.hadRuntimeError = false;
+        reporter.reset();
 
-        Interpreter interpreter = new Interpreter();
-        TypeChecker typeChecker = new TypeChecker(interpreter.getNativeFunctions(), interpreter.getEnvironment().getNativeClasses());
+        Interpreter interpreter = new Interpreter(reporter);
+        TypeChecker typeChecker = new TypeChecker(interpreter.getNativeFunctions(), interpreter.getEnvironment().getNativeClasses(), reporter);
 
         // Phase 1: Scan and Parse all scripts
         for (ScriptInfo script : scripts.values()) {
-            Scanner scanner = new Scanner(script.source);
+            Scanner scanner = new Scanner(script.source, reporter);
             List<Token> tokens = scanner.scanTokens();
-            Parser parser = new Parser(tokens);
+            Parser parser = new Parser(tokens, reporter);
             script.statements = parser.parseStatements();
-            if (TVScript.hadError) {
-                TVScript.hadError = false;
+            if (reporter.hasError()) {
                 throw new RuntimeException("Parse error in " + script.path);
             }
         }
@@ -89,8 +90,7 @@ class ModuleSystemTest {
         // Pass 2: Check each script's body with the full context.
         for (ScriptInfo script : scripts.values()) {
             typeChecker.check(script.statements, script.path, script.module);
-            if (TVScript.hadError) {
-                TVScript.hadError = false;
+            if (reporter.hasError()) {
                 throw new RuntimeException("Type check error in " + script.path);
             }
         }
@@ -107,8 +107,7 @@ class ModuleSystemTest {
             interpreter.setCurrentScriptPath(script.path);
             interpreter.setCurrentModule(script.module);
             interpreter.interpret(script.statements);
-            if (TVScript.hadRuntimeError) {
-                TVScript.hadRuntimeError = false;
+            if (reporter.hasRuntimeError()) {
                 throw new RuntimeError(null, "Runtime error in " + script.path);
             }
         }
