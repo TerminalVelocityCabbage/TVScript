@@ -1,7 +1,9 @@
 package com.terminalvelocitycabbage.tvscript.execution;
 
-import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import com.terminalvelocitycabbage.tvscript.ast.Statement.VarStatement;
+import com.terminalvelocitycabbage.tvscript.ast.Statement.FunctionStatement.Parameter;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
+import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 
 import java.util.ArrayList;
@@ -18,7 +20,7 @@ public class TVScriptClass {
     final String name;
     final TVScriptClass superclass;
     final List<TVScriptTrait> traits;
-    final List<Statement.VarStatement> fields;
+    final List<VarStatement> fields;
     final Map<String, TVScriptFunction> methods;
     final Map<String, TVScriptFunction> staticMethods;
     final List<TVScriptFunction> constructors;
@@ -26,32 +28,38 @@ public class TVScriptClass {
     final boolean isType;
     final NativeClass nativeClass;
     final Map<String, Object> classConstants;
+    final TokenType visibility;
+    final String scriptPath;
 
     private final Map<Object, TVScriptInstance> nativeWrapperCache = new IdentityHashMap<>();
 
     public TVScriptClass(String name,
                          TVScriptClass superclass,
                          List<TVScriptTrait> traits,
-                         List<Statement.VarStatement> fields,
+                         List<VarStatement> fields,
                          Map<String, TVScriptFunction> methods,
                          Map<String, TVScriptFunction> staticMethods,
                          List<TVScriptFunction> constructors,
                          Map<String, List<TVScriptFunction>> operators,
-                         boolean isType) {
-        this(name, superclass, traits, fields, methods, staticMethods, constructors, operators, isType, null, Map.of());
+                         boolean isType,
+                         TokenType visibility,
+                         String scriptPath) {
+        this(name, superclass, traits, fields, methods, staticMethods, constructors, operators, isType, null, Map.of(), visibility, scriptPath);
     }
 
     public TVScriptClass(String name,
                          TVScriptClass superclass,
                          List<TVScriptTrait> traits,
-                         List<Statement.VarStatement> fields,
+                         List<VarStatement> fields,
                          Map<String, TVScriptFunction> methods,
                          Map<String, TVScriptFunction> staticMethods,
                          List<TVScriptFunction> constructors,
                          Map<String, List<TVScriptFunction>> operators,
                          boolean isType,
                          NativeClass nativeClass,
-                         Map<String, Object> classConstants) {
+                         Map<String, Object> classConstants,
+                         TokenType visibility,
+                         String scriptPath) {
         this.name = name;
         this.superclass = superclass;
         this.traits = traits;
@@ -63,6 +71,8 @@ public class TVScriptClass {
         this.isType = isType;
         this.nativeClass = nativeClass;
         this.classConstants = classConstants == null ? new HashMap<>() : new HashMap<>(classConstants);
+        this.visibility = visibility;
+        this.scriptPath = scriptPath;
     }
 
     public TVScriptInstance instantiate(Interpreter interpreter, Map<String, Object> arguments, Token callToken) {
@@ -129,7 +139,7 @@ public class TVScriptClass {
             superclass.initializeFields(instance, interpreter);
         }
 
-        for (Statement.VarStatement field : fields) {
+        for (VarStatement field : fields) {
             if (field.isConst() && !isType) {
                 continue;
             }
@@ -142,8 +152,8 @@ public class TVScriptClass {
     }
 
     private void applyTypeArguments(TVScriptInstance instance, Map<String, Object> arguments, Token callToken) {
-        Map<String, Statement.VarStatement> fieldMap = new HashMap<>();
-        for (Statement.VarStatement field : fields) {
+        Map<String, VarStatement> fieldMap = new HashMap<>();
+        for (VarStatement field : fields) {
             if (field.isConst() && !isType) {
                 continue;
             }
@@ -151,7 +161,7 @@ public class TVScriptClass {
         }
 
         for (Map.Entry<String, Object> entry : arguments.entrySet()) {
-            Statement.VarStatement field = fieldMap.get(entry.getKey());
+            VarStatement field = fieldMap.get(entry.getKey());
             if (field == null) {
                 throw new RuntimeError(callToken, "Unknown field '" + entry.getKey() + "' for type '" + name + "'.");
             }
@@ -194,7 +204,7 @@ public class TVScriptClass {
     private boolean isCandidate(TVScriptFunction constructor, Map<String, Object> arguments) {
         for (String argName : arguments.keySet()) {
             boolean found = false;
-            for (Statement.FunctionStatement.Parameter param : constructor.parameters()) {
+            for (Parameter param : constructor.parameters()) {
                 if (param.name().lexeme().equals(argName)) {
                     found = true;
                     break;
@@ -203,7 +213,7 @@ public class TVScriptClass {
             if (!found) return false;
         }
 
-        for (Statement.FunctionStatement.Parameter param : constructor.parameters()) {
+        for (Parameter param : constructor.parameters()) {
             if (param.defaultValue() == null && !arguments.containsKey(param.name().lexeme())) {
                 return false;
             }
@@ -303,12 +313,65 @@ public class TVScriptClass {
     public Object getClassMember(String memberName, Interpreter interpreter) {
         TVScriptFunction staticMethod = findStaticMethod(memberName);
         if (staticMethod != null) {
+            checkVisibility(staticMethod.getVisibility(), staticMethod.getScriptPath(), interpreter, "static method " + memberName);
             return staticMethod;
         }
         if (classConstants.containsKey(memberName)) {
             return interpreter.toScriptValue(classConstants.get(memberName));
         }
         return MISSING_MEMBER;
+    }
+
+    public void checkVisibility(TokenType visibility, String targetScriptPath, Interpreter interpreter, String memberInfo) {
+        if (visibility == TokenType.PUBLIC) return;
+        
+        String currentScriptPath = interpreter.getCurrentScriptPath();
+        String currentModule = interpreter.getCurrentModule();
+        
+        if (visibility == TokenType.PRIVATE) {
+            if (!currentScriptPath.equals(targetScriptPath)) {
+                throw new RuntimeError(null, "Cannot access private " + memberInfo + " from script '" + currentScriptPath + "'.");
+            }
+            return;
+        }
+        
+        if (visibility == TokenType.PROTECTED) {
+            String currentFolder = getFolder(currentScriptPath);
+            String targetFolder = getFolder(targetScriptPath);
+            if (!currentFolder.equals(targetFolder)) {
+                throw new RuntimeError(null, "Cannot access protected " + memberInfo + " from script '" + currentScriptPath + "'.");
+            }
+            return;
+        }
+        
+        if (visibility == TokenType.MODULE) {
+             // In tests/embedding, the module might be explicitly set on the interpreter.
+             // If the target script also belongs to a module, we should compare them.
+             // We can use a heuristic if they are not explicitly set, or just use what's in the interpreter.
+             String targetModule = getModuleName(targetScriptPath);
+             if (!currentModule.equals(targetModule)) {
+                 throw new RuntimeError(null, "Cannot access module-private " + memberInfo + " from module '" + currentModule + "'.");
+             }
+        }
+    }
+
+    private String getModuleName(String path) {
+        // Simple heuristic: if it starts with modules/X/, X is the module name.
+        if (path.startsWith("modules/") || path.startsWith("modules\\")) {
+            String sub = path.substring(8);
+            int nextSlash = Math.max(sub.indexOf('/'), sub.indexOf('\\'));
+            if (nextSlash != -1) {
+                return sub.substring(0, nextSlash);
+            }
+            return sub;
+        }
+        return "default";
+    }
+
+    private String getFolder(String path) {
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (lastSlash == -1) return "";
+        return path.substring(0, lastSlash);
     }
 
     public Object getNativeInstanceMember(TVScriptInstance instance, Token nameToken, Interpreter interpreter) {
@@ -444,7 +507,7 @@ public class TVScriptClass {
     }
 
     private boolean matches(TVScriptFunction function, Object left, Object right) {
-        List<Statement.FunctionStatement.Parameter> parameters = function.parameters();
+        List<Parameter> parameters = function.parameters();
         if (parameters.size() == 1) {
             return isCompatibleArgument(parameters.get(0), right);
         }
@@ -454,7 +517,7 @@ public class TVScriptClass {
         return false;
     }
 
-    private boolean isCompatibleArgument(Statement.FunctionStatement.Parameter parameter, Object value) {
+    private boolean isCompatibleArgument(Parameter parameter, Object value) {
         Token type = parameter.type();
         return switch (type.type()) {
             case TYPE_INTEGER -> value instanceof Integer;
@@ -470,6 +533,14 @@ public class TVScriptClass {
             }
             default -> true;
         };
+    }
+
+    public TokenType getVisibility() {
+        return visibility;
+    }
+
+    public String getScriptPath() {
+        return scriptPath;
     }
 
     @Override

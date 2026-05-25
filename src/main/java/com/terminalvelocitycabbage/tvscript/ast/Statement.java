@@ -73,7 +73,7 @@ public interface Statement {
         }
     }
 
-    record VarStatement(Token type, Token name, Expression initializer, boolean isConst) implements Statement {
+    record VarStatement(Token type, Token name, Expression initializer, boolean isConst, Token visibility) implements Statement, VisibleElement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitVarStatement(this);
@@ -124,7 +124,7 @@ public interface Statement {
         public record Case(List<Expression> patterns, Statement branch) {}
     }
 
-    record ImportStatement(Token module, List<ImportItem> items) implements Statement {
+    record ImportStatement(Token module, List<ImportItem> items, Token alias) implements Statement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitImportStatement(this);
@@ -142,7 +142,7 @@ public interface Statement {
         }
     }
 
-    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, List<GenericParameter> genericParameters, boolean isOverride, boolean isDefault) implements Statement {
+    record FunctionStatement(Token name, List<Parameter> parameters, Token returnType, Statement body, List<GenericParameter> genericParameters, boolean isOverride, boolean isDefault, Token visibility) implements Statement, VisibleElement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitFunctionStatement(this);
@@ -158,7 +158,7 @@ public interface Statement {
         }
     }
 
-    record ClassStatement(Token name, List<GenericParameter> genericParameters, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors, boolean isNative) implements Statement {
+    record ClassStatement(Token name, List<GenericParameter> genericParameters, Token superclass, List<Token> traits, List<VarStatement> fields, List<FunctionStatement> methods, List<FunctionStatement> staticMethods, List<FunctionStatement> constructors, boolean isNative, Token visibility) implements Statement, VisibleElement {
         @Override
         public <R> R accept(Visitor<R> visitor) {
             return visitor.visitClassStatement(this);

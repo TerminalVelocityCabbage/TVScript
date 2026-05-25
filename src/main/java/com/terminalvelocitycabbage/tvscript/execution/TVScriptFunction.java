@@ -5,8 +5,10 @@ import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
+import com.terminalvelocitycabbage.tvscript.ast.Statement.FunctionStatement;
 import com.terminalvelocitycabbage.tvscript.ast.Statement.FunctionStatement.Parameter;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,7 +26,10 @@ public class TVScriptFunction implements TVScriptCallable {
     private final boolean isOverride;
     private final boolean isDefault;
 
-    public TVScriptFunction(String name, List<Parameter> parameters, Statement body, Environment closure, Token returnType, boolean isOverride, boolean isDefault) {
+    private final TokenType visibility;
+    private final String scriptPath;
+
+    public TVScriptFunction(String name, List<Parameter> parameters, Statement body, Environment closure, Token returnType, boolean isOverride, boolean isDefault, TokenType visibility, String scriptPath) {
         this.name = name;
         this.parameters = parameters;
         this.body = body;
@@ -32,14 +37,16 @@ public class TVScriptFunction implements TVScriptCallable {
         this.returnType = returnType;
         this.isOverride = isOverride;
         this.isDefault = isDefault;
+        this.visibility = visibility;
+        this.scriptPath = scriptPath;
     }
 
-    public TVScriptFunction(Expression.FunctionExpression declaration, Environment closure) {
-        this(null, declaration.parameters(), declaration.body(), closure, declaration.returnType(), false, false);
+    public TVScriptFunction(Expression.FunctionExpression declaration, Environment closure, String scriptPath) {
+        this(null, declaration.parameters(), declaration.body(), closure, declaration.returnType(), false, false, TokenType.PRIVATE, scriptPath);
     }
 
-    public TVScriptFunction(Statement.FunctionStatement declaration, Environment closure) {
-        this(declaration.name() != null ? declaration.name().lexeme() : null, declaration.parameters(), declaration.body(), closure, declaration.returnType(), declaration.isOverride(), declaration.isDefault());
+    public TVScriptFunction(FunctionStatement declaration, Environment closure, String scriptPath) {
+        this(declaration.name() != null ? declaration.name().lexeme() : null, declaration.parameters(), declaration.body(), closure, declaration.returnType(), declaration.isOverride(), declaration.isDefault(), declaration.visibility() != null ? declaration.visibility().type() : TokenType.PRIVATE, scriptPath);
     }
 
     public TVScriptFunction bind(TVScriptInstance instance) {
@@ -47,7 +54,7 @@ public class TVScriptFunction implements TVScriptCallable {
         // define "this" in the closure
         // We use a dummy token for 'this'
         environment.define(new Token(TokenType.THIS, "this", null, 0), instance, TokenType.NONE, true);
-        return new TVScriptFunction(name, parameters, body, environment, returnType, isOverride, isDefault);
+        return new TVScriptFunction(name, parameters, body, environment, returnType, isOverride, isDefault, visibility, scriptPath);
     }
 
     public List<Parameter> parameters() {
@@ -63,8 +70,22 @@ public class TVScriptFunction implements TVScriptCallable {
     public Object call(Interpreter interpreter, Map<String, Object> arguments, Token callToken) {
         Environment environment = new Environment(closure);
 
+        // Map positional arguments to parameter names
+        Map<String, Object> finalArgs = new HashMap<>(arguments);
+        for (int i = 0; i < parameters.size(); i++) {
+            String positionalKey = "$" + i;
+            if (finalArgs.containsKey(positionalKey)) {
+                Object value = finalArgs.remove(positionalKey);
+                String paramName = parameters.get(i).name().lexeme();
+                if (finalArgs.containsKey(paramName)) {
+                    throw new RuntimeError(callToken, "Duplicate argument for parameter '" + paramName + "'.");
+                }
+                finalArgs.put(paramName, value);
+            }
+        }
+
         // Check for unexpected arguments
-        for (String argName : arguments.keySet()) {
+        for (String argName : finalArgs.keySet()) {
             boolean found = false;
             for (Parameter parameter : parameters) {
                 if (parameter.name().lexeme().equals(argName)) {
@@ -80,10 +101,10 @@ public class TVScriptFunction implements TVScriptCallable {
         for (int i = 0; i < parameters.size(); i++) {
             Parameter parameter = parameters.get(i);
             String paramName = parameter.name().lexeme();
-            Object value = arguments.get(paramName);
+            Object value = finalArgs.get(paramName);
 
             // Handle default value if argument not provided
-            if (value == null && !arguments.containsKey(paramName)) {
+            if (value == null && !finalArgs.containsKey(paramName)) {
                 if (parameter.defaultValue() != null) {
                     value = interpreter.evaluate(parameter.defaultValue());
                 } else {
@@ -153,5 +174,13 @@ public class TVScriptFunction implements TVScriptCallable {
 
     public boolean isOverride() {
         return isOverride;
+    }
+
+    public TokenType getVisibility() {
+        return visibility;
+    }
+
+    public String getScriptPath() {
+        return scriptPath;
     }
 }

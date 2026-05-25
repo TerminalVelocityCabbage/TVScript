@@ -41,9 +41,10 @@ Currently, the language is under heavy development. Below is the implementation 
 - [x] Native Events and Listeners
 
 ### Ecosystem & Runtime
-- [ ] Module System (`import`)
-- [ ] Script Visibility Modifiers
+- [x] Module System (`import`, qualified access, blocks)
+- [x] Script Visibility Modifiers
 - [x] Main Entrypoints (`on InitializedEvent`)
+- [x] C-style Function Syntax (`integer add(integer a, integer b)`)
 - [ ] Bytecode Compilation (Currently Interpreted)
 
 ---
@@ -333,8 +334,36 @@ For the above definition any script can access `ModInfo` to create instances of 
 
 In a regular environment the module visibility modifier will never be used, but when embedding this language into a game engine, it's useful.
 ### Default visibility
-By default, all classes, methods, and fields are private. (Planned behavior, not yet implemented.)
-Scripts are public, and there is currently no way to make a script private, you control the visibility of members individually.
+By default, all classes, methods, and fields are private. Top-level functions and variables are also private. Scripts are public.
+
+### Imports and Aliasing
+
+TVScript supports importing members from other scripts using package paths.
+
+```tvscript
+import math.Util
+import graphics.Renderer as GraphicsRenderer
+
+// Selective imports
+import collections.List:
+    ArrayList as List
+    HashMap
+
+// Qualified access
+import network as net
+net.Client client = new net.Client()
+```
+
+Multiple visibility modifiers on a single declaration (e.g., `public private class X`) will result in a compile-time error.
+
+Naming conflicts can be resolved using the `as` keyword for aliasing or by using qualified access.
+
+### Visibility Modifiers
+You can control access to members using the following modifiers (must come first in the definition):
+- `public`: Access from anywhere.
+- `private`: Access only from within the same script (for top-level) or class (for members).
+- `protected`: Access from all scripts in the same directory.
+- `module`: Access from all scripts in the same module.
 
 ### Importing functionality
 to import some functionality from one script to another, you can use the import keyword at the start of your file

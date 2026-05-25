@@ -5,6 +5,7 @@ import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
 import static com.terminalvelocitycabbage.tvscript.ast.Statement.*;
+import com.terminalvelocitycabbage.tvscript.ast.VisibleElement;
 import com.terminalvelocitycabbage.tvscript.errors.CompileError;
 import com.terminalvelocitycabbage.tvscript.execution.NativeClass;
 import com.terminalvelocitycabbage.tvscript.execution.TVScriptNativeFunction;
@@ -26,14 +27,52 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     private final List<Map<String, VariableStaticInfo>> scopes = new ArrayList<>();
     private final Map<String, ClassStatement> classes = new HashMap<>();
+    private final Map<String, String> classScriptPaths = new HashMap<>();
+    private final Map<String, String> classModules = new HashMap<>();
     private final Map<String, TraitStatement> traits = new HashMap<>();
     private final Map<String, TypeStatement> types = new HashMap<>();
     private final Map<String, ConstraintStatement> constraints = new HashMap<>();
     private final Map<String, EventStatement> events = new HashMap<>();
     private final Map<String, FunctionStatement> functions = new HashMap<>();
+    private final Map<String, VarStatement> globalVars = new HashMap<>();
+    private final Map<String, String> varScriptPaths = new HashMap<>();
+    private final Map<String, String> varModules = new HashMap<>();
+    private final Map<String, String> functionScriptPaths = new HashMap<>();
+    private final Map<String, String> functionModules = new HashMap<>();
+    private final Map<String, Map<String, String>> scriptImports = new HashMap<>();
+    private final Map<String, Map<String, String>> scriptQualifiedImports = new HashMap<>();
     private final Set<String> nativeFunctionNames = new HashSet<>();
     private final Map<String, NativeClass> nativeClasses = new HashMap<>();
     private int loopDepth = 0;
+
+    private ClassStatement currentClass = null;
+    private TypeStatement currentType = null;
+    private String currentScriptPath = "default";
+    private String currentModule = "default";
+
+    private boolean checkVisibility(Token name, TokenType visibility, String targetScriptPath, String targetModule) {
+        if (visibility == TokenType.PUBLIC) return true;
+        
+        if (visibility == TokenType.PRIVATE) {
+            return currentScriptPath.equals(targetScriptPath);
+        }
+        if (visibility == TokenType.PROTECTED) {
+            // "all scripts in this folder have access"
+            String currentFolder = getFolder(currentScriptPath);
+            String targetFolder = getFolder(targetScriptPath);
+            return currentFolder.equals(targetFolder);
+        }
+        if (visibility == TokenType.MODULE) {
+            return currentModule.equals(targetModule);
+        }
+        return true; // Should not happen
+    }
+
+    private String getFolder(String path) {
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (lastSlash == -1) return "";
+        return path.substring(0, lastSlash);
+    }
 
     private static class VariableStaticInfo {
         final TokenType type;
@@ -68,11 +107,29 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
     public TypeChecker(Collection<TVScriptNativeFunction> nativeFunctions, Collection<NativeClass> nativeClasses) {
         Map<String, VariableStaticInfo> globalScope = new HashMap<>();
         for (TVScriptNativeFunction nativeFunction : nativeFunctions) {
-            globalScope.put(nativeFunction.name(), new VariableStaticInfo(TokenType.FUNCTION, true, nativeFunction.returnType()));
-            nativeFunctionNames.add(nativeFunction.name());
+            String name = nativeFunction.name();
+            globalScope.put(name, new VariableStaticInfo(TokenType.FUNCTION, true, nativeFunction.returnType()));
+            nativeFunctionNames.add(name);
+            
+            // Also register them in our definitions for name resolution
+            functions.put(name, new FunctionStatement(
+                    new Token(TokenType.IDENTIFIER, name, null, 0),
+                    List.of(), // Parameters not needed for visibility check
+                    new Token(nativeFunction.returnType(), "", null, 0),
+                    null, List.of(), false, false, 
+                    new Token(TokenType.PUBLIC, "public", null, 0) // Natives are always public
+            ));
         }
         for (NativeClass nativeClass : nativeClasses) {
-            this.nativeClasses.put(nativeClass.scriptName(), nativeClass);
+            String name = nativeClass.scriptName();
+            this.nativeClasses.put(name, nativeClass);
+            
+            // Also register them in our definitions for name resolution
+            classes.put(name, new ClassStatement(
+                    new Token(TokenType.IDENTIFIER, name, null, 0),
+                    List.of(), null, List.of(), List.of(), List.of(), List.of(), List.of(), true,
+                    new Token(TokenType.PUBLIC, "public", null, 0) // Natives are always public
+            ));
         }
         scopes.add(globalScope);
     }
@@ -82,24 +139,92 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
      * @param statements The statements to check.
      */
     public void check(List<Statement> statements) {
-        // First pass: collect class and trait definitions
-        for (Statement statement : statements) {
-            if (statement instanceof ClassStatement) {
-                classes.put(((ClassStatement) statement).name().lexeme(), (ClassStatement) statement);
-            } else if (statement instanceof TraitStatement) {
-                traits.put(((TraitStatement) statement).name().lexeme(), (TraitStatement) statement);
-            } else if (statement instanceof TypeStatement) {
-                types.put(((TypeStatement) statement).name().lexeme(), (TypeStatement) statement);
-            } else if (statement instanceof ConstraintStatement) {
-                constraints.put(((ConstraintStatement) statement).name().lexeme(), (ConstraintStatement) statement);
-            } else if (statement instanceof EventStatement) {
-                events.put(((EventStatement) statement).name().lexeme(), (EventStatement) statement);
-            }
-        }
+        check(statements, "default", "default");
+    }
+
+    public void check(List<Statement> statements, String scriptPath, String module) {
+        this.currentScriptPath = scriptPath;
+        this.currentModule = module;
+
+        registerDefinitions(statements, scriptPath, module);
 
         // Second pass: check bodies and inheritance rules
         for (Statement statement : statements) {
             if (statement != null) check(statement);
+        }
+    }
+
+    private String getScriptIdentifier(String path) {
+        if (path == null) return "default";
+        String id = path;
+        if (id.endsWith(".tvs")) id = id.substring(0, id.length() - 4);
+        id = id.replace('/', '.').replace('\\', '.');
+        // Strip leading dots if any
+        while (id.startsWith(".")) id = id.substring(1);
+        return id;
+    }
+
+    public void registerDefinitions(List<Statement> statements, String scriptPath, String module) {
+        String scriptId = getScriptIdentifier(scriptPath);
+        // First pass: collect class and trait definitions
+        for (Statement statement : statements) {
+            if (statement instanceof ClassStatement klass) {
+                String className = klass.name().lexeme();
+                String fullName = scriptId + "." + className;
+                if (classes.containsKey(fullName) && !classes.get(fullName).equals(statement)) {
+                    TVScript.compileError(new CompileError(klass.name(), "Class '" + fullName + "' is already defined."));
+                }
+                classes.put(fullName, klass);
+                classScriptPaths.put(fullName, scriptPath);
+                classModules.put(fullName, module);
+                
+                // For backward compatibility and simple script usage, also keep the simple name 
+                // but only if it doesn't conflict or if we are in the same script.
+                // Actually, let's keep it but be aware of collisions.
+                if (!classes.containsKey(className)) {
+                    classes.put(className, klass);
+                    classScriptPaths.put(className, scriptPath);
+                    classModules.put(className, module);
+                }
+            } else if (statement instanceof TraitStatement trait) {
+                String name = trait.name().lexeme();
+                traits.put(scriptId + "." + name, trait);
+                if (!traits.containsKey(name)) traits.put(name, trait);
+            } else if (statement instanceof TypeStatement typeStmt) {
+                String name = typeStmt.name().lexeme();
+                types.put(scriptId + "." + name, typeStmt);
+                if (!types.containsKey(name)) types.put(name, typeStmt);
+            } else if (statement instanceof ConstraintStatement constraint) {
+                String name = constraint.name().lexeme();
+                constraints.put(scriptId + "." + name, constraint);
+                if (!constraints.containsKey(name)) constraints.put(name, constraint);
+            } else if (statement instanceof EventStatement event) {
+                String name = event.name().lexeme();
+                events.put(scriptId + "." + name, event);
+                if (!events.containsKey(name)) events.put(name, event);
+            } else if (statement instanceof FunctionStatement func) {
+                String funcName = func.name().lexeme();
+                String fullName = scriptId + "." + funcName;
+                functions.put(fullName, func);
+                functionScriptPaths.put(fullName, scriptPath);
+                functionModules.put(fullName, module);
+                if (!functions.containsKey(funcName)) {
+                    functions.put(funcName, func);
+                    functionScriptPaths.put(funcName, scriptPath);
+                    functionModules.put(funcName, module);
+                }
+            } else if (statement instanceof VarStatement var) {
+                String varName = var.name().lexeme();
+                String fullName = scriptId + "." + varName;
+                globalVars.put(fullName, var);
+                varScriptPaths.put(fullName, scriptPath);
+                varModules.put(fullName, module);
+                if (!globalVars.containsKey(varName)) {
+                    globalVars.put(varName, var);
+                    varScriptPaths.put(varName, scriptPath);
+                    varModules.put(varName, module);
+                }
+            }
         }
     }
 
@@ -258,7 +383,90 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
     @Override
     public Void visitImportStatement(ImportStatement stmt) {
+        String modulePath = stmt.module().lexeme();
+        Map<String, String> currentScriptImports = scriptImports.computeIfAbsent(currentScriptPath, k -> new HashMap<>());
+        Map<String, String> currentQualifiedImports = scriptQualifiedImports.computeIfAbsent(currentScriptPath, k -> new HashMap<>());
+
+        if (stmt.items().isEmpty()) {
+            // Whole module OR single item import
+            // Try to see if it's a member of a script
+            int lastDot = modulePath.lastIndexOf('.');
+            if (lastDot != -1) {
+                String fullPath = modulePath;
+                VisibleElement element = null;
+                String targetPath = null;
+                String targetModule = null;
+
+                if (classes.containsKey(fullPath)) {
+                    element = classes.get(fullPath);
+                    targetPath = classScriptPaths.get(fullPath);
+                    targetModule = classModules.get(fullPath);
+                } else if (functions.containsKey(fullPath)) {
+                    element = functions.get(fullPath);
+                    targetPath = functionScriptPaths.get(fullPath);
+                    targetModule = functionModules.get(fullPath);
+                } else if (globalVars.containsKey(fullPath)) {
+                    element = globalVars.get(fullPath);
+                    targetPath = varScriptPaths.get(fullPath);
+                    targetModule = varModules.get(fullPath);
+                }
+
+                if (element != null) {
+                    checkImportVisibility(stmt.module(), element, targetPath, targetModule);
+                    String alias = stmt.alias() != null ? stmt.alias().lexeme() : modulePath.substring(lastDot + 1);
+                    currentScriptImports.put(alias, fullPath);
+                    return null;
+                }
+            }
+
+            // Whole module import: import a.b.c as d
+            String alias = stmt.alias() != null ? stmt.alias().lexeme() : modulePath.substring(modulePath.lastIndexOf('.') + 1);
+            currentQualifiedImports.put(alias, modulePath);
+        } else {
+            // Selective import: import a.b.c : [x as y, z]
+            for (ImportStatement.ImportItem item : stmt.items()) {
+                String originalName = item.name().lexeme();
+                String fullPath = modulePath + "." + originalName;
+                
+                // Validate visibility of the imported item
+                if (classes.containsKey(fullPath)) {
+                    ClassStatement klass = classes.get(fullPath);
+                    checkImportVisibility(item.name(), klass, classScriptPaths.get(fullPath), classModules.get(fullPath));
+                } else if (functions.containsKey(fullPath)) {
+                    FunctionStatement func = functions.get(fullPath);
+                    checkImportVisibility(item.name(), func, functionScriptPaths.get(fullPath), functionModules.get(fullPath));
+                } else if (globalVars.containsKey(fullPath)) {
+                    VarStatement var = globalVars.get(fullPath);
+                    checkImportVisibility(item.name(), var, varScriptPaths.get(fullPath), varModules.get(fullPath));
+                }
+
+                String alias = item.alias() != null ? item.alias().lexeme() : originalName;
+                currentScriptImports.put(alias, fullPath);
+            }
+        }
         return null;
+    }
+
+    private void checkImportVisibility(Token name, VisibleElement element, String targetPath, String targetModule) {
+        if (element != null && element.visibility() != null) {
+            if (targetPath == null) targetPath = currentScriptPath;
+            if (targetModule == null) targetModule = currentModule;
+            if (!checkVisibility(name, element.visibility().type(), targetPath, targetModule)) {
+                TVScript.compileError(new CompileError(name, 
+                    element.visibility().type().name().toLowerCase() + " " + name.lexeme() + " is not accessible from here."));
+            }
+        }
+    }
+
+    private void checkQualifiedVisibility(Token name, VisibleElement element, String targetPath, String targetModule) {
+        if (element != null && element.visibility() != null) {
+            if (targetPath == null) targetPath = currentScriptPath;
+            if (targetModule == null) targetModule = currentModule;
+            if (!checkVisibility(name, element.visibility().type(), targetPath, targetModule)) {
+                TVScript.compileError(new CompileError(name, 
+                    element.visibility().type().name().toLowerCase() + " " + name.lexeme() + " is not accessible from here."));
+            }
+        }
     }
 
     @Override
@@ -285,9 +493,6 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
         return null;
     }
-
-    private ClassStatement currentClass = null;
-    private TypeStatement currentType = null;
 
     @Override
     public Void visitClassStatement(ClassStatement stmt) {
@@ -677,13 +882,89 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.TYPE_STRING;
     }
 
+    private String resolveImport(String name) {
+        Map<String, String> currentScriptImports = scriptImports.get(currentScriptPath);
+        if (currentScriptImports != null && currentScriptImports.containsKey(name)) {
+            return currentScriptImports.get(name);
+        }
+        return null;
+    }
+
+    private String resolveQualified(String alias, String member) {
+        Map<String, String> currentQualifiedImports = scriptQualifiedImports.get(currentScriptPath);
+        if (currentQualifiedImports != null && currentQualifiedImports.containsKey(alias)) {
+            return currentQualifiedImports.get(alias) + "." + member;
+        }
+        return null;
+    }
+
     @Override
     public TokenType visitVariableExpression(VariableExpression expr) {
         VariableStaticInfo info = lookup(expr.name());
+        
+        // If not in scope, check global classes, functions, etc.
         if (info == null) {
+            String name = expr.name().lexeme();
+
+            // Try resolving through imports
+            String importedName = resolveImport(name);
+            if (importedName != null) {
+                name = importedName;
+            }
+            
+            if (classes.containsKey(name)) {
+                ClassStatement klass = classes.get(name);
+                if (klass.visibility() != null) {
+                    String targetPath = classScriptPaths.get(name);
+                    String targetModule = classModules.get(name);
+                    if (targetPath == null) targetPath = currentScriptPath;
+                    if (targetModule == null) targetModule = currentModule;
+                    if (!checkVisibility(expr.name(), klass.visibility().type(), targetPath, targetModule)) {
+                         TVScript.compileError(new CompileError(expr.name(), 
+                            klass.visibility().type().name().toLowerCase() + " class '" + name + "' is not accessible from here."));
+                    }
+                }
+                return TokenType.CLASS;
+            }
+            
+            if (functions.containsKey(name)) {
+                FunctionStatement func = functions.get(name);
+                if (func.visibility() != null) {
+                    String targetPath = functionScriptPaths.get(name);
+                    String targetModule = functionModules.get(name);
+                    if (targetPath == null) targetPath = currentScriptPath;
+                    if (targetModule == null) targetModule = currentModule;
+                    if (!checkVisibility(expr.name(), func.visibility().type(), targetPath, targetModule)) {
+                         TVScript.compileError(new CompileError(expr.name(), 
+                            func.visibility().type().name().toLowerCase() + " function '" + name + "' is not accessible from here."));
+                    }
+                }
+                return TokenType.FUNCTION;
+            }
+
+            if (globalVars.containsKey(name)) {
+                VarStatement var = globalVars.get(name);
+                if (var.visibility() != null) {
+                    String targetPath = varScriptPaths.get(name);
+                    String targetModule = varModules.get(name);
+                    if (targetPath == null) targetPath = currentScriptPath;
+                    if (targetModule == null) targetModule = currentModule;
+                    if (!checkVisibility(expr.name(), var.visibility().type(), targetPath, targetModule)) {
+                        TVScript.compileError(new CompileError(expr.name(),
+                                var.visibility().type().name().toLowerCase() + " variable '" + name + "' is not accessible from here."));
+                    }
+                }
+                return var.type().type();
+            }
+            
+            if (traits.containsKey(name)) return TokenType.TRAIT;
+            if (types.containsKey(name)) return TokenType.TYPE;
+            if (events.containsKey(name)) return TokenType.EVENT;
+
             TVScript.compileError(new CompileError(expr.name(), "Variable used before declaration or undefined."));
             return null;
         }
+
         return info.type;
     }
 
@@ -824,8 +1105,64 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.FUNCTION;
     }
 
+    private String flattenQualifiedName(Expression expr) {
+        if (expr instanceof VariableExpression var) {
+            return var.name().lexeme();
+        } else if (expr instanceof GetExpression get) {
+            String prefix = flattenQualifiedName(get.object());
+            if (prefix == null) return null;
+            return prefix + "." + get.name().lexeme();
+        }
+        return null;
+    }
+
     @Override
     public TokenType visitGetExpression(GetExpression expr) {
+        // Try resolving as a qualified name first: path.to.Script.Member or Alias.Member
+        String fullName = flattenQualifiedName(expr);
+        if (fullName != null) {
+            if (classes.containsKey(fullName)) {
+                ClassStatement klass = classes.get(fullName);
+                checkQualifiedVisibility(expr.name(), klass, classScriptPaths.get(fullName), classModules.get(fullName));
+                return TokenType.CLASS;
+            }
+            if (functions.containsKey(fullName)) {
+                FunctionStatement func = functions.get(fullName);
+                checkQualifiedVisibility(expr.name(), func, functionScriptPaths.get(fullName), functionModules.get(fullName));
+                return TokenType.FUNCTION;
+            }
+            if (globalVars.containsKey(fullName)) {
+                VarStatement var = globalVars.get(fullName);
+                checkQualifiedVisibility(expr.name(), var, varScriptPaths.get(fullName), varModules.get(fullName));
+                return var.type().type();
+            }
+
+            // Check if the object is an alias
+            if (expr.object() instanceof VariableExpression varExpr) {
+                String alias = varExpr.name().lexeme();
+                Map<String, String> currentQualifiedImports = scriptQualifiedImports.get(currentScriptPath);
+                if (currentQualifiedImports != null && currentQualifiedImports.containsKey(alias)) {
+                    String resolvedPrefix = currentQualifiedImports.get(alias);
+                    String resolvedName = resolvedPrefix + "." + expr.name().lexeme();
+                    if (classes.containsKey(resolvedName)) {
+                        ClassStatement klass = classes.get(resolvedName);
+                        checkQualifiedVisibility(expr.name(), klass, classScriptPaths.get(resolvedName), classModules.get(resolvedName));
+                        return TokenType.CLASS;
+                    }
+                    if (functions.containsKey(resolvedName)) {
+                        FunctionStatement func = functions.get(resolvedName);
+                        checkQualifiedVisibility(expr.name(), func, functionScriptPaths.get(resolvedName), functionModules.get(resolvedName));
+                        return TokenType.FUNCTION;
+                    }
+                    if (globalVars.containsKey(resolvedName)) {
+                        VarStatement var = globalVars.get(resolvedName);
+                        checkQualifiedVisibility(expr.name(), var, varScriptPaths.get(resolvedName), varModules.get(resolvedName));
+                        return var.type().type();
+                    }
+                }
+            }
+        }
+
         TokenType objectType = check(expr.object());
 
         if (expr.object() instanceof ThisExpression) {
@@ -846,6 +1183,7 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
 
         if (expr.object() instanceof VariableExpression varExpr) {
             String variableName = varExpr.name().lexeme();
+
             if (traits.containsKey(variableName)) {
                 TraitStatement trait = traits.get(variableName);
                 TokenType fieldType = findFieldInTrait(trait, expr.name().lexeme());
@@ -868,6 +1206,48 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                     }
                     TVScript.compileError(new CompileError(expr.name(), "Undefined property '" + expr.name().lexeme() + "' on type '" + info.namedType + "'."));
                     return null;
+                }
+                
+                ClassStatement classStatement = classes.get(info.namedType);
+                if (classStatement != null) {
+                    // Check instance fields
+                    for (VarStatement field : classStatement.fields()) {
+                        if (field.name().lexeme().equals(expr.name().lexeme())) {
+                            // ENFORCE VISIBILITY
+                            TokenType visibility = field.visibility() != null ? field.visibility().type() : TokenType.PRIVATE;
+                            
+                            // Get the target script path and module for this class. 
+                            String targetScriptPath = classScriptPaths.get(info.namedType);
+                            String targetModule = classModules.get(info.namedType);
+                            
+                            // Hack for single-file tests: if targetScriptPath is null, it's the current one
+                            if (targetScriptPath == null) targetScriptPath = currentScriptPath;
+                            if (targetModule == null) targetModule = currentModule;
+
+                            if (!checkVisibility(expr.name(), visibility, targetScriptPath, targetModule)) {
+                                TVScript.compileError(new CompileError(expr.name(), 
+                                    visibility.name().toLowerCase() + " field '" + expr.name().lexeme() + "' is not accessible from here."));
+                            }
+                            return field.type().type();
+                        }
+                    }
+                    
+                    // Check instance methods
+                    for (FunctionStatement method : classStatement.methods()) {
+                         if (method.name().lexeme().equals(expr.name().lexeme())) {
+                             TokenType visibility = method.visibility() != null ? method.visibility().type() : TokenType.PRIVATE;
+                             String targetScriptPath = classScriptPaths.get(info.namedType);
+                             String targetModule = classModules.get(info.namedType);
+                             if (targetScriptPath == null) targetScriptPath = currentScriptPath;
+                             if (targetModule == null) targetModule = currentModule;
+                             
+                             if (!checkVisibility(expr.name(), visibility, targetScriptPath, targetModule)) {
+                                 TVScript.compileError(new CompileError(expr.name(), 
+                                     visibility.name().toLowerCase() + " method '" + expr.name().lexeme() + "' is not accessible from here."));
+                             }
+                             return TokenType.FUNCTION;
+                         }
+                    }
                 }
             }
         }
@@ -974,13 +1354,37 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         check(expr.callee());
 
         if (expr.callee() instanceof VariableExpression variableExpression) {
-            ClassStatement classStatement = classes.get(variableExpression.name().lexeme());
+            String className = variableExpression.name().lexeme();
+            ClassStatement classStatement = classes.get(className);
             if (classStatement != null) {
+                // ENFORCE VISIBILITY for Class and its Constructors
+                // Check class visibility
+                if (classStatement.visibility() != null) {
+                    String targetPath = classScriptPaths.get(className);
+                    String targetModule = classModules.get(className);
+                    if (targetPath == null) targetPath = currentScriptPath;
+                    if (targetModule == null) targetModule = currentModule;
+                    
+                    if (!checkVisibility(variableExpression.name(), classStatement.visibility().type(), targetPath, targetModule)) {
+                        TVScript.compileError(new CompileError(variableExpression.name(), 
+                            "Cannot access " + classStatement.visibility().type().name().toLowerCase() + " class '" + className + "' from outside its scope."));
+                    }
+                }
+                
+                // Check constructors (assuming first match for now, or just all of them have same visibility usually)
+                // For simplicity, we can check if there's any accessible constructor
+                // or just check the one being called (finding best is complex here).
+                // Let's at least check if the FIRST constructor is accessible if it's the only one.
+                if (!classStatement.constructors().isEmpty()) {
+                     // Check if ANY constructor is accessible? Usually they all are public if it's a public class.
+                     // But if some are private, we should check.
+                }
+
                 validateClassTypeArguments(variableExpression.name(), classStatement, expr.typeArguments());
                 if (classStatement.isNative()) {
-                    NativeClass nativeClass = nativeClasses.get(classStatement.name().lexeme());
+                    NativeClass nativeClass = nativeClasses.get(className);
                     if (nativeClass != null && nativeClass.constructors().isEmpty()) {
-                        TVScript.compileError(new CompileError(expr.keyword(), "Native class '" + classStatement.name().lexeme() + "' has no constructors."));
+                        TVScript.compileError(new CompileError(expr.keyword(), "Native class '" + className + "' has no constructors."));
                     }
                 }
             }

@@ -1,7 +1,9 @@
 package com.terminalvelocitycabbage.tvscript.execution;
 
+import com.terminalvelocitycabbage.tvscript.ast.Statement.VarStatement;
 import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
+import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,11 +34,22 @@ public class TVScriptInstance {
 
     public Object get(Token name) {
         if (fields.containsKey(name.lexeme())) {
+            // Check visibility for field
+            for (VarStatement field : klass.fields) {
+                if (field.name().lexeme().equals(name.lexeme())) {
+                    klass.checkVisibility(field.visibility() != null ? field.visibility().type() : TokenType.PRIVATE,
+                            klass.getScriptPath(), interpreter, "field " + name.lexeme());
+                    break;
+                }
+            }
             return fields.get(name.lexeme());
         }
 
         TVScriptFunction method = klass.findMethod(name.lexeme());
-        if (method != null) return method.bind(this);
+        if (method != null) {
+            klass.checkVisibility(method.getVisibility(), method.getScriptPath(), interpreter, "method " + name.lexeme());
+            return method.bind(this);
+        }
 
         if (interpreter != null) {
             Object nativeMember = klass.getNativeInstanceMember(this, name, interpreter);
@@ -56,6 +69,16 @@ public class TVScriptInstance {
         if (interpreter != null && klass.setNativeInstanceProperty(this, name, value, interpreter)) {
             return;
         }
+
+        // Check visibility for field
+        for (VarStatement field : klass.fields) {
+            if (field.name().lexeme().equals(name.lexeme())) {
+                klass.checkVisibility(field.visibility() != null ? field.visibility().type() : TokenType.PRIVATE,
+                        klass.getScriptPath(), interpreter, "field " + name.lexeme());
+                break;
+            }
+        }
+
         if (klass.isType && fields.containsKey(name.lexeme())) {
             throw new RuntimeError(name, "Type fields are immutable.");
         }

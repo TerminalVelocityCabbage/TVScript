@@ -52,6 +52,10 @@ public class Environment {
         this.enclosing = enclosing;
     }
 
+    public Environment getEnclosing() {
+        return enclosing;
+    }
+
     public void defineNative(String name, Object value) {
         values.put(name, new VariableInfo(value, TokenType.FUNCTION, true));
         nativeFunctionNames.add(name);
@@ -131,7 +135,7 @@ public class Environment {
         values.put(name.lexeme(), new VariableInfo(value, type, isConst));
     }
 
-    private boolean isAlreadyDefinedAnywhere(String name) {
+    public boolean isAlreadyDefinedAnywhere(String name) {
         if (values.containsKey(name)) return true;
         if (enclosing != null) return enclosing.isAlreadyDefinedAnywhere(name);
         return false;

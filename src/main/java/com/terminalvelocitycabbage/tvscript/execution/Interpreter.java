@@ -176,6 +176,12 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
     private Environment environment;
     private final EventSystem eventSystem;
 
+    private final Map<String, Map<String, String>> scriptImports = new HashMap<>();
+    private final Map<String, Map<String, String>> scriptQualifiedImports = new HashMap<>();
+
+    private String currentScriptPath = "default";
+    private String currentModule = "default";
+
     public Interpreter() {
         this(new Environment());
     }
@@ -203,6 +209,22 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             if (statement != null) execute(statement);
         }
         eventSystem.dispatch("InitializedEvent", Map.of());
+    }
+
+    public String getCurrentScriptPath() {
+        return currentScriptPath;
+    }
+
+    public void setCurrentScriptPath(String currentScriptPath) {
+        this.currentScriptPath = currentScriptPath;
+    }
+
+    public String getCurrentModule() {
+        return currentModule;
+    }
+
+    public void setCurrentModule(String currentModule) {
+        this.currentModule = currentModule;
     }
 
     public Environment getEnvironment() {
@@ -524,9 +546,37 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         return builder.toString();
     }
 
+    private String getScriptIdentifier(String path) {
+        if (path == null) return "default";
+        String id = path;
+        if (id.endsWith(".tvs")) id = id.substring(0, id.length() - 4);
+        id = id.replace('/', '.').replace('\\', '.');
+        while (id.startsWith(".")) id = id.substring(1);
+        return id;
+    }
+
+    private String flattenQualifiedName(Expression expr) {
+        if (expr instanceof VariableExpression var) {
+            return var.name().lexeme();
+        } else if (expr instanceof GetExpression get) {
+            String prefix = flattenQualifiedName(get.object());
+            if (prefix == null) return null;
+            return prefix + "." + get.name().lexeme();
+        }
+        return null;
+    }
+
     @Override
     public Object visitVariableExpression(VariableExpression expr) {
-        return environment.get(expr.name());
+        String name = expr.name().lexeme();
+
+        // Try resolving through selective imports
+        Map<String, String> currentImports = scriptImports.get(currentScriptPath);
+        if (currentImports != null && currentImports.containsKey(name)) {
+            name = currentImports.get(name);
+        }
+
+        return environment.get(name);
     }
 
     @Override
@@ -614,6 +664,27 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Object visitGetExpression(GetExpression expr) {
+        // Try resolving as a qualified name first: path.to.Script.Member or Alias.Member
+        String fullName = flattenQualifiedName(expr);
+        if (fullName != null) {
+            if (environment.isAlreadyDefinedAnywhere(fullName)) {
+                return environment.get(fullName);
+            }
+
+            // Check if the object is an alias
+            if (expr.object() instanceof VariableExpression varExpr) {
+                String alias = varExpr.name().lexeme();
+                Map<String, String> currentQualifiedImports = scriptQualifiedImports.get(currentScriptPath);
+                if (currentQualifiedImports != null && currentQualifiedImports.containsKey(alias)) {
+                    String resolvedPrefix = currentQualifiedImports.get(alias);
+                    String resolvedName = resolvedPrefix + "." + expr.name().lexeme();
+                    if (environment.isAlreadyDefinedAnywhere(resolvedName)) {
+                        return environment.get(resolvedName);
+                    }
+                }
+            }
+        }
+
         Object object = evaluate(expr.object());
         if (object instanceof TVScriptInstance instance) {
             return instance.get(expr.name());
@@ -1216,7 +1287,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Object visitFunctionExpression(FunctionExpression expr) {
-        return new TVScriptFunction(expr, environment);
+        return new TVScriptFunction(expr, environment, currentScriptPath);
     }
 
     private boolean matchPattern(Object condition, Object pattern) {
@@ -1406,8 +1477,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitFunctionStatement(FunctionStatement stmt) {
-        TVScriptFunction function = new TVScriptFunction(stmt, environment);
+        TVScriptFunction function = new TVScriptFunction(stmt, environment, currentScriptPath);
         environment.define(stmt.name(), function, TokenType.FUNCTION, true);
+        
+        // Register qualified name
+        String scriptId = getScriptIdentifier(currentScriptPath);
+        environment.define(scriptId + "." + stmt.name().lexeme(), function, TokenType.FUNCTION, true);
+        
         return null;
     }
 
@@ -1441,13 +1517,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         Map<String, TVScriptFunction> methods = new HashMap<>();
         for (FunctionStatement method : stmt.methods()) {
-            TVScriptFunction function = new TVScriptFunction(method, environment);
+            TVScriptFunction function = new TVScriptFunction(method, environment, currentScriptPath);
             methods.put(method.name().lexeme(), function);
         }
 
         Map<String, TVScriptFunction> staticMethods = new HashMap<>();
         for (FunctionStatement staticMethod : stmt.staticMethods()) {
-            TVScriptFunction function = new TVScriptFunction(staticMethod, environment);
+            TVScriptFunction function = new TVScriptFunction(staticMethod, environment, currentScriptPath);
             staticMethods.put(staticMethod.name().lexeme(), function);
         }
 
@@ -1471,7 +1547,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         List<TVScriptFunction> constructors = new ArrayList<>();
         if (!stmt.isNative()) {
             for (FunctionStatement constructorStmt : stmt.constructors()) {
-                constructors.add(new TVScriptFunction(constructorStmt, environment));
+                constructors.add(new TVScriptFunction(constructorStmt, environment, currentScriptPath));
             }
         }
 
@@ -1486,9 +1562,16 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
                 new HashMap<>(),
                 false,
                 nativeClassBinding,
-                classConstants
+                classConstants,
+                stmt.visibility() != null ? stmt.visibility().type() : TokenType.PRIVATE,
+                currentScriptPath
         );
         environment.define(stmt.name(), klass, TokenType.CLASS, true);
+        
+        // Register qualified name
+        String scriptId = getScriptIdentifier(currentScriptPath);
+        environment.define(scriptId + "." + stmt.name().lexeme(), klass, TokenType.CLASS, true);
+        
         return null;
     }
 
@@ -1505,13 +1588,13 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
         Map<String, TVScriptFunction> methods = new HashMap<>();
         for (FunctionStatement method : stmt.methods()) {
-            TVScriptFunction function = new TVScriptFunction(method, environment);
+            TVScriptFunction function = new TVScriptFunction(method, environment, currentScriptPath);
             methods.put(method.name().lexeme(), function);
         }
 
         Map<String, List<TVScriptFunction>> operators = new HashMap<>();
         for (FunctionStatement operator : stmt.operators()) {
-            TVScriptFunction function = new TVScriptFunction(operator, environment);
+            TVScriptFunction function = new TVScriptFunction(operator, environment, currentScriptPath);
             operators.computeIfAbsent(operator.name().lexeme(), k -> new ArrayList<>()).add(function);
         }
 
@@ -1524,7 +1607,11 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
                 new HashMap<>(),
                 new ArrayList<>(),
                 operators,
-                true
+                true,
+                null,
+                new HashMap<>(),
+                TokenType.PUBLIC, // Types are public for now
+                currentScriptPath
         );
         environment.define(stmt.name(), type, TokenType.CLASS, true);
         return null;
@@ -1541,10 +1628,10 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             traits.add((TVScriptTrait) obj);
         }
 
-        Map<String, TVScriptFunction> methods = new HashMap<>();
+        Map<String, TVScriptFunction> traitMethods = new HashMap<>();
         for (FunctionStatement method : stmt.methods()) {
-            TVScriptFunction function = new TVScriptFunction(method, environment);
-            methods.put(method.name().lexeme(), function);
+            TVScriptFunction function = new TVScriptFunction(method, environment, currentScriptPath);
+            traitMethods.put(method.name().lexeme(), function);
         }
 
         Map<String, Object> constantFields = new HashMap<>();
@@ -1556,7 +1643,7 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
             constantFields.put(field.name().lexeme(), value);
         }
 
-        TVScriptTrait trait = new TVScriptTrait(stmt.name().lexeme(), traits, stmt.fields(), methods, constantFields);
+        TVScriptTrait trait = new TVScriptTrait(stmt.name().lexeme(), traits, stmt.fields(), traitMethods, constantFields);
         environment.define(stmt.name(), trait, TokenType.TRAIT, true);
         return null;
     }
@@ -1596,6 +1683,18 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
         applyDeclaredCollectionTypes(stmt.type(), value, stmt.name());
 
         environment.define(stmt.name(), value, type, stmt.isConst());
+        
+        // Register qualified name if it's a global variable (no enclosing scope)
+        // Wait, how do I check if it's a global variable? 
+        // Interpreter doesn't have an easy way to check if environment is global.
+        // But usually top-level vars are defined in the main script environment.
+        // For TVScript, globals are usually in the outer-most environment.
+        // Let's assume if environment has no enclosing (other than configuredGlobals), it's global.
+        if (environment.getEnclosing() == configuredGlobals || environment.getEnclosing() == null) {
+            String scriptId = getScriptIdentifier(currentScriptPath);
+            environment.define(scriptId + "." + stmt.name().lexeme(), value, type, stmt.isConst());
+        }
+        
         return null;
     }
 
@@ -1645,6 +1744,34 @@ public class Interpreter implements Expression.Visitor<Object>, Statement.Visito
 
     @Override
     public Void visitImportStatement(ImportStatement stmt) {
+        String modulePath = stmt.module().lexeme();
+        Map<String, String> currentImports = scriptImports.computeIfAbsent(currentScriptPath, k -> new HashMap<>());
+        Map<String, String> currentQualifiedImports = scriptQualifiedImports.computeIfAbsent(currentScriptPath, k -> new HashMap<>());
+
+        if (stmt.items().isEmpty()) {
+            // Whole module OR single item import
+            int lastDot = modulePath.lastIndexOf('.');
+            if (lastDot != -1) {
+                String fullPath = modulePath;
+                if (environment.isAlreadyDefinedAnywhere(fullPath)) {
+                    String alias = stmt.alias() != null ? stmt.alias().lexeme() : modulePath.substring(lastDot + 1);
+                    currentImports.put(alias, fullPath);
+                    return null;
+                }
+            }
+
+            // Whole module import: import a.b.c as d
+            String alias = stmt.alias() != null ? stmt.alias().lexeme() : modulePath.substring(modulePath.lastIndexOf('.') + 1);
+            currentQualifiedImports.put(alias, modulePath);
+        } else {
+            // Selective import: import a.b.c : [x as y, z]
+            for (ImportStatement.ImportItem item : stmt.items()) {
+                String originalName = item.name().lexeme();
+                String fullPath = modulePath + "." + originalName;
+                String alias = item.alias() != null ? item.alias().lexeme() : originalName;
+                currentImports.put(alias, fullPath);
+            }
+        }
         return null;
     }
 

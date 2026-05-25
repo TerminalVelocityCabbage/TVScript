@@ -58,13 +58,21 @@ public class Parser {
 
     private Statement declaration() {
         try {
+            Token visibility = null;
+            if (match(PUBLIC, PRIVATE, PROTECTED, MODULE)) {
+                visibility = previous();
+                if (match(PUBLIC, PRIVATE, PROTECTED, MODULE)) {
+                    throw error(previous(), "Only one visibility modifier is allowed.");
+                }
+            }
+
             if (match(IMPORT)) return importDeclaration();
             if (check(NATIVE) && checkNext(CLASS)) {
                 advance();
                 advance();
-                return classDeclaration(true);
+                return classDeclaration(true, visibility);
             }
-            if (match(CLASS)) return classDeclaration(false);
+            if (match(CLASS)) return classDeclaration(false, visibility);
             if (match(TRAIT)) return traitDeclaration();
             if (match(TYPE)) return typeDeclaration();
             if (match(CONSTRAINT)) return constraintDeclaration();
@@ -76,16 +84,23 @@ public class Parser {
             if (match(EVENT)) return eventDeclaration(false);
             if (match(ON)) return onDeclaration();
             if (match(FUNCTION)) {
-                return functionDeclaration("function");
+                return functionDeclaration("function", visibility);
             }
 
-            if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP)) {
-                return varDeclaration(previous());
+            // Check for type-prefixed function or variable
+            if (check(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP) ||
+                (check(IDENTIFIER) && looksLikeTypedVariableDeclaration())) {
+
+                Token typeToken = consumeType("Expect type.");
+                if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
+                    Token name = advance();
+                    return finishFunctionDeclaration(name, "function", false, false, visibility, typeToken);
+                }
+                return varDeclaration(typeToken, visibility);
             }
 
-            if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
-                Token type = consumeType("Expect variable type.");
-                return varDeclaration(type);
+            if (visibility != null) {
+                throw error(visibility, "Visibility modifiers are not allowed here.");
             }
 
             return statement();
@@ -99,7 +114,8 @@ public class Parser {
         Token importKeyword = previous();
         Token first = consume(IDENTIFIER, "Expect module path after 'import'.");
         StringBuilder modulePath = new StringBuilder(first.lexeme());
-        while (match(DOT)) {
+        while (check(DOT)) {
+            advance();
             Token segment = consume(IDENTIFIER, "Expect module path segment after '.'.");
             modulePath.append('.').append(segment.lexeme());
         }
@@ -117,12 +133,17 @@ public class Parser {
             } else if (match(NEWLINE)) {
                 consume(INDENT, "Expect indentation after newline in import block.");
                 while (!check(DEDENT) && !isAtEnd()) {
-                    if (match(NEWLINE)) {
-                        continue;
-                    }
+                    while (match(NEWLINE)) { /* skip empty lines */ }
+                    if (check(DEDENT)) break;
+                    
                     items.add(importItem());
-                    if (!check(DEDENT)) {
-                        consume(NEWLINE, "Expect newline after import item.");
+                    
+                    if (match(COMMA)) {
+                        while (match(NEWLINE)) { /* skip newline after comma */ }
+                    } else if (match(NEWLINE)) {
+                        // next item or dedent
+                    } else if (!check(DEDENT)) {
+                        throw error(peek(), "Expect ',' or newline after import item.");
                     }
                 }
                 consume(DEDENT, "Expect dedent after import block.");
@@ -132,7 +153,11 @@ public class Parser {
         }
 
         Token moduleToken = new Token(IDENTIFIER, modulePath.toString(), null, importKeyword.line());
-        return new ImportStatement(moduleToken, items);
+        Token alias = null;
+        if (match(AS)) {
+            alias = consume(IDENTIFIER, "Expect alias name after 'as'.");
+        }
+        return new ImportStatement(moduleToken, items, alias);
     }
 
     private ImportStatement.ImportItem importItem() {
@@ -144,7 +169,7 @@ public class Parser {
         return new ImportStatement.ImportItem(name, alias);
     }
 
-    private Statement varDeclaration(Token typeToken) {
+    private Statement varDeclaration(Token typeToken, Token visibility) {
         boolean isConst = typeToken.type() == CONST;
         Token finalType = typeToken;
 
@@ -166,7 +191,7 @@ public class Parser {
             throw new ParseError();
         }
 
-        return new VarStatement(finalType, name, initializer, isConst);
+        return new VarStatement(finalType, name, initializer, isConst, visibility);
     }
 
     private Statement statement() {
@@ -369,7 +394,7 @@ public class Parser {
             while (!check(DEDENT) && !isAtEnd()) {
                 if (match(NEWLINE)) continue;
                 Token type = consumeType("Expect field type.");
-                fields.add((VarStatement) varDeclaration(type));
+                fields.add((VarStatement) varDeclaration(type, null));
                 if (!check(DEDENT) && !check(EOF)) {
                     consume(NEWLINE, "Expect newline after event field.");
                 }
@@ -377,7 +402,7 @@ public class Parser {
             consume(DEDENT, "Expect dedent after event fields.");
         } else {
             Token type = consumeType("Expect field type.");
-            fields.add((VarStatement) varDeclaration(type));
+            fields.add((VarStatement) varDeclaration(type, null));
         }
 
         return new EventStatement(name, fields, isNative);
@@ -466,7 +491,7 @@ public class Parser {
         return new ConstraintStatement(name, superclassConstraint, traitConstraints);
     }
 
-    private Statement classDeclaration(boolean isNative) {
+    private Statement classDeclaration(boolean isNative, Token visibility) {
         Token name = consume(IDENTIFIER, "Expect class name.");
         List<GenericParameter> genericParameters = parseGenericParameters();
 
@@ -496,30 +521,49 @@ public class Parser {
         List<FunctionStatement> constructors = new ArrayList<>();
 
         while (!check(DEDENT) && !isAtEnd()) {
+            Token memberVisibility = null;
+            if (match(PUBLIC, PRIVATE, PROTECTED, MODULE)) {
+                memberVisibility = previous();
+                if (match(PUBLIC, PRIVATE, PROTECTED, MODULE)) {
+                    throw error(previous(), "Only one visibility modifier is allowed.");
+                }
+            }
+
             if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP, VAR, CONST)) {
-                if (isNative && previous().type() != CONST) {
-                    throw error(previous(), "Native classes cannot declare instance fields.");
+                Token typeToken = previous();
+                if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
+                    Token memberName = advance();
+                    methods.add(finishFunctionDeclaration(memberName, "method", false, false, memberVisibility, typeToken));
+                } else {
+                    if (isNative && typeToken.type() != CONST) {
+                        throw error(typeToken, "Native classes cannot declare instance fields.");
+                    }
+                    fields.add((VarStatement) varDeclaration(typeToken, memberVisibility));
                 }
-                fields.add((VarStatement)varDeclaration(previous()));
             } else if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
-                if (isNative) {
-                    throw error(peek(), "Native classes cannot declare instance fields.");
+                Token typeToken = consumeType("Expect field type.");
+                if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
+                    Token memberName = advance();
+                    methods.add(finishFunctionDeclaration(memberName, "method", false, false, memberVisibility, typeToken));
+                } else {
+                    if (isNative) {
+                        throw error(peek(), "Native classes cannot declare instance fields.");
+                    }
+                    fields.add((VarStatement) varDeclaration(typeToken, memberVisibility));
                 }
-                Token type = consumeType("Expect field type.");
-                fields.add((VarStatement)varDeclaration(type));
             } else if (match(CONSTRUCTOR)) {
                 if (isNative) {
                     throw error(previous(), "Native classes cannot declare constructors.");
                 }
-                constructors.add(constructorDeclaration());
+                constructors.add(constructorDeclaration(memberVisibility));
             } else if (match(FUNCTION)) {
-                staticMethods.add((FunctionStatement)functionDeclaration("static function"));
+                staticMethods.add((FunctionStatement)functionDeclaration("static function", memberVisibility));
             } else if (match(DEFAULT, OVERRIDE) || check(IDENTIFIER)) {
-                methods.add(methodDeclaration());
+                methods.add(methodDeclaration(memberVisibility));
             } else if (match(PASS)) {
-                // Allow pass in class body
+                if (memberVisibility != null) throw error(memberVisibility, "Visibility modifiers are not allowed on 'pass'.");
             } else if (match(NEWLINE)) {
-                // Ignore empty lines
+                if (memberVisibility != null) throw error(memberVisibility, "Visibility modifiers are not allowed on empty lines.");
             } else {
                 throw error(peek(), "Expect field or method declaration in class body.");
             }
@@ -534,7 +578,7 @@ public class Parser {
             throw new ParseError();
         }
 
-        return new ClassStatement(name, genericParameters, superclass, traits, fields, methods, staticMethods, constructors, isNative);
+        return new ClassStatement(name, genericParameters, superclass, traits, fields, methods, staticMethods, constructors, isNative, visibility);
     }
 
     private Statement traitDeclaration() {
@@ -559,9 +603,9 @@ public class Parser {
 
         while (!check(DEDENT) && !isAtEnd()) {
             if (match(CONST)) {
-                fields.add((VarStatement)varDeclaration(previous()));
+                fields.add((VarStatement)varDeclaration(previous(), null));
             } else if (match(DEFAULT, OVERRIDE) || check(IDENTIFIER)) {
-                methods.add(methodDeclaration());
+                methods.add(methodDeclaration(null));
             } else if (match(PASS)) {
                 // Allow pass in trait body
             } else if (match(NEWLINE)) {
@@ -600,20 +644,20 @@ public class Parser {
 
         while (!check(DEDENT) && !isAtEnd()) {
             if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP, VAR, CONST)) {
-                VarStatement field = (VarStatement) varDeclaration(previous());
+                VarStatement field = (VarStatement) varDeclaration(previous(), null);
                 if (!field.isConst()) {
-                    field = new VarStatement(field.type(), field.name(), field.initializer(), true);
+                    field = new VarStatement(field.type(), field.name(), field.initializer(), true, null);
                 }
                 fields.add(field);
             } else if (check(IDENTIFIER) && looksLikeTypedVariableDeclaration()) {
                 Token type = consumeType("Expect field type.");
-                VarStatement field = (VarStatement) varDeclaration(type);
+                VarStatement field = (VarStatement) varDeclaration(type, null);
                 if (!field.isConst()) {
-                    field = new VarStatement(field.type(), field.name(), field.initializer(), true);
+                    field = new VarStatement(field.type(), field.name(), field.initializer(), true, null);
                 }
                 fields.add(field);
             } else if (match(DEFAULT, OVERRIDE) || (check(IDENTIFIER) && checkNext(LEFT_PAREN))) {
-                methods.add(methodDeclaration());
+                methods.add(methodDeclaration(null));
             } else if (match(OPERATOR)) {
                 operators.add(operatorDeclaration(name));
             } else if (match(PASS)) {
@@ -677,7 +721,7 @@ public class Parser {
             }
         }
 
-        return new FunctionStatement(operatorName, parameters, returnType, body, List.of(), false, false);
+        return new FunctionStatement(operatorName, parameters, returnType, body, List.of(), false, false, null);
     }
 
     private FunctionStatement.Parameter operatorParameter(Token ownerType) {
@@ -691,7 +735,7 @@ public class Parser {
         return new FunctionStatement.Parameter(type, name, null);
     }
 
-    private FunctionStatement methodDeclaration() {
+    private FunctionStatement methodDeclaration(Token visibility) {
         boolean isDefault = match(DEFAULT);
         boolean isOverride = false;
         if (!isDefault) {
@@ -699,15 +743,15 @@ public class Parser {
         }
 
         Token name = consume(IDENTIFIER, "Expect method name.");
-        return finishFunctionDeclaration(name, "method", isOverride, isDefault);
+        return finishFunctionDeclaration(name, "method", isOverride, isDefault, visibility, null);
     }
 
-    private FunctionStatement constructorDeclaration() {
+    private FunctionStatement constructorDeclaration(Token visibility) {
         Token keyword = previous();
-        return finishFunctionDeclaration(keyword, "constructor", false, false);
+        return finishFunctionDeclaration(keyword, "constructor", false, false, visibility, null);
     }
 
-    private FunctionStatement finishFunctionDeclaration(Token name, String kind, boolean isOverride, boolean isDefault) {
+    private FunctionStatement finishFunctionDeclaration(Token name, String kind, boolean isOverride, boolean isDefault, Token visibility, Token returnType) {
         List<GenericParameter> genericParameters = parseGenericParameters();
         consume(LEFT_PAREN, "Expect '(' after " + kind + ".");
         List<FunctionStatement.Parameter> parameters = new ArrayList<>();
@@ -718,8 +762,7 @@ public class Parser {
         }
         consume(RIGHT_PAREN, "Expect ')' after parameters.");
 
-        Token returnType = null;
-        if (match(ARROW)) {
+        if (returnType == null && match(ARROW)) {
             returnType = consumeType("Expect return type.");
         }
 
@@ -738,12 +781,12 @@ public class Parser {
             }
         }
 
-        return new FunctionStatement(name, parameters, returnType, body, genericParameters, isOverride, isDefault);
+        return new FunctionStatement(name, parameters, returnType, body, genericParameters, isOverride, isDefault, visibility);
     }
 
-    private Statement functionDeclaration(String kind) {
+    private Statement functionDeclaration(String kind, Token visibility) {
         Token name = consume(IDENTIFIER, "Expect " + kind + " name.");
-        return finishFunctionDeclaration(name, kind, false, false);
+        return finishFunctionDeclaration(name, kind, false, false, visibility, null);
     }
 
     private FunctionStatement.Parameter parameter() {
@@ -833,6 +876,19 @@ public class Parser {
     private Token consumeType(String message) {
         if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER, LIST, SET, MAP)) {
             Token type = previous();
+
+            // Handle dotted identifiers: network.Client
+            if (type.type() == IDENTIFIER) {
+                StringBuilder fullName = new StringBuilder(type.lexeme());
+                while (match(DOT)) {
+                    Token segment = consume(IDENTIFIER, "Expect type name segment after '.'.");
+                    fullName.append('.').append(segment.lexeme());
+                }
+                if (fullName.length() > type.lexeme().length()) {
+                    type = new Token(IDENTIFIER, fullName.toString(), null, type.line());
+                }
+            }
+
             if ((type.type() == LIST || type.type() == SET || type.type() == MAP) && match(LEFT_BRACKET)) {
                 return parseParameterizedType(type);
             }
@@ -1265,10 +1321,6 @@ public class Parser {
                     arguments.add(new CallExpression.Argument(name, value));
                     hasNamedArguments = true;
                 } else {
-                    if (!(callee instanceof GetExpression)) {
-                        throw error(peek(), "Expect argument name.");
-                    }
-
                     if (hasNamedArguments) {
                         throw error(peek(), "Cannot use positional arguments after named arguments.");
                     }
@@ -1362,7 +1414,22 @@ public class Parser {
             return -1;
         }
 
-        int index = startIndex + 1;
+        int index = startIndex;
+        // Handle dotted identifiers: network.Client
+        while (index < tokens.size() && tokens.get(index).type() == IDENTIFIER) {
+            index++;
+            if (index < tokens.size() && tokens.get(index).type() == DOT) {
+                index++;
+                if (index >= tokens.size() || tokens.get(index).type() != IDENTIFIER) {
+                    return -1;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if (index == startIndex) index++;
+
         if (index < tokens.size() && (tokens.get(index).type() == LESS || tokens.get(index).type() == LEFT_BRACKET)) {
             int angleDepth = 0;
             int squareDepth = 0;
