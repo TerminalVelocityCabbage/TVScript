@@ -6,6 +6,8 @@ import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 
+import com.terminalvelocitycabbage.tvscript.execution.values.ScriptValue;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -14,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class TVScriptClass {
+public class TVScriptClass implements ScriptValue {
     static final Object MISSING_MEMBER = new Object();
 
     final String name;
@@ -308,6 +310,13 @@ public class TVScriptClass {
         }
 
         return prepared;
+    }
+
+    @Override
+    public Object get(Interpreter interpreter, Token name) {
+        Object member = getClassMember(name.lexeme(), interpreter);
+        if (member != MISSING_MEMBER) return member;
+        throw new RuntimeError(name, "Undefined static member '" + name.lexeme() + "'.");
     }
 
     public Object getClassMember(String memberName, Interpreter interpreter) {

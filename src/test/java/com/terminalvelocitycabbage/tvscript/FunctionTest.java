@@ -271,15 +271,14 @@ public class FunctionTest {
     }
 
     @Test
-    public void testPositionalArgumentsError() {
-        CompileError error = assertThrows(CompileError.class, () -> {
-            run("""
-                function add(integer a, integer b):
-                    print a + b
-                add(10, 20)
-                """);
-        });
-        assertEquals("Expect argument name.", error.getMessage());
+    public void testPositionalArguments() {
+        run("""
+            function add(integer a, integer b) -> integer:
+                return a + b
+            
+            print add(10, 20)
+            """);
+        assertOutput("30");
     }
 
     @Test

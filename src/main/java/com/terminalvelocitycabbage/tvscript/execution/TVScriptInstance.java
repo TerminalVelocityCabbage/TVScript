@@ -5,10 +5,12 @@ import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.TokenType;
 
+import com.terminalvelocitycabbage.tvscript.execution.values.ScriptValue;
+
 import java.util.HashMap;
 import java.util.Map;
 
-public class TVScriptInstance {
+public class TVScriptInstance implements ScriptValue {
     private final TVScriptClass klass;
     private final Interpreter interpreter;
     private final Object nativeObject;
@@ -32,7 +34,8 @@ public class TVScriptInstance {
         return nativeObject;
     }
 
-    public Object get(Token name) {
+    @Override
+    public Object get(Interpreter interpreter, Token name) {
         if (fields.containsKey(name.lexeme())) {
             // Check visibility for field
             for (VarStatement field : klass.fields) {
@@ -51,22 +54,25 @@ public class TVScriptInstance {
             return method.bind(this);
         }
 
-        if (interpreter != null) {
-            Object nativeMember = klass.getNativeInstanceMember(this, name, interpreter);
-            if (nativeMember != TVScriptClass.MISSING_MEMBER) {
-                return nativeMember;
-            }
+        Object nativeMember = klass.getNativeInstanceMember(this, name, interpreter);
+        if (nativeMember != TVScriptClass.MISSING_MEMBER) {
+            return nativeMember;
         }
 
         throw new RuntimeError(name, "Undefined property '" + name.lexeme() + "'.");
+    }
+
+    public Object get(Token name) {
+        return get(this.interpreter, name);
     }
 
     public void defineField(Token name, Object value) {
         fields.put(name.lexeme(), value);
     }
 
-    public void set(Token name, Object value) {
-        if (interpreter != null && klass.setNativeInstanceProperty(this, name, value, interpreter)) {
+    @Override
+    public void set(Interpreter interpreter, Token name, Object value) {
+        if (klass.setNativeInstanceProperty(this, name, value, interpreter)) {
             return;
         }
 
@@ -83,6 +89,10 @@ public class TVScriptInstance {
             throw new RuntimeError(name, "Type fields are immutable.");
         }
         fields.put(name.lexeme(), value);
+    }
+
+    public void set(Token name, Object value) {
+        set(this.interpreter, name, value);
     }
 
     @Override

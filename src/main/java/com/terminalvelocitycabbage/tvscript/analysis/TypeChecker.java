@@ -1,6 +1,7 @@
 package com.terminalvelocitycabbage.tvscript.analysis;
 
 import com.terminalvelocitycabbage.tvscript.TVScript;
+import com.terminalvelocitycabbage.tvscript.util.AstUtils;
 import com.terminalvelocitycabbage.tvscript.ast.Expression;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import static com.terminalvelocitycabbage.tvscript.ast.Expression.*;
@@ -58,8 +59,8 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
         if (visibility == TokenType.PROTECTED) {
             // "all scripts in this folder have access"
-            String currentFolder = getFolder(currentScriptPath);
-            String targetFolder = getFolder(targetScriptPath);
+            String currentFolder = AstUtils.getFolder(currentScriptPath);
+            String targetFolder = AstUtils.getFolder(targetScriptPath);
             return currentFolder.equals(targetFolder);
         }
         if (visibility == TokenType.MODULE) {
@@ -68,11 +69,6 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return true; // Should not happen
     }
 
-    private String getFolder(String path) {
-        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-        if (lastSlash == -1) return "";
-        return path.substring(0, lastSlash);
-    }
 
     private static class VariableStaticInfo {
         final TokenType type;
@@ -154,18 +150,9 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         }
     }
 
-    private String getScriptIdentifier(String path) {
-        if (path == null) return "default";
-        String id = path;
-        if (id.endsWith(".tvs")) id = id.substring(0, id.length() - 4);
-        id = id.replace('/', '.').replace('\\', '.');
-        // Strip leading dots if any
-        while (id.startsWith(".")) id = id.substring(1);
-        return id;
-    }
 
     public void registerDefinitions(List<Statement> statements, String scriptPath, String module) {
-        String scriptId = getScriptIdentifier(scriptPath);
+        String scriptId = AstUtils.getScriptIdentifier(scriptPath);
         // First pass: collect class and trait definitions
         for (Statement statement : statements) {
             if (statement instanceof ClassStatement klass) {
@@ -219,11 +206,6 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
                 globalVars.put(fullName, var);
                 varScriptPaths.put(fullName, scriptPath);
                 varModules.put(fullName, module);
-                if (!globalVars.containsKey(varName)) {
-                    globalVars.put(varName, var);
-                    varScriptPaths.put(varName, scriptPath);
-                    varModules.put(varName, module);
-                }
             }
         }
     }
@@ -1105,21 +1087,11 @@ public class TypeChecker implements Statement.Visitor<Void>, Expression.Visitor<
         return TokenType.FUNCTION;
     }
 
-    private String flattenQualifiedName(Expression expr) {
-        if (expr instanceof VariableExpression var) {
-            return var.name().lexeme();
-        } else if (expr instanceof GetExpression get) {
-            String prefix = flattenQualifiedName(get.object());
-            if (prefix == null) return null;
-            return prefix + "." + get.name().lexeme();
-        }
-        return null;
-    }
 
     @Override
     public TokenType visitGetExpression(GetExpression expr) {
         // Try resolving as a qualified name first: path.to.Script.Member or Alias.Member
-        String fullName = flattenQualifiedName(expr);
+        String fullName = AstUtils.flattenQualifiedName(expr);
         if (fullName != null) {
             if (classes.containsKey(fullName)) {
                 ClassStatement klass = classes.get(fullName);

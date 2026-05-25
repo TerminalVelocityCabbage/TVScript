@@ -874,7 +874,7 @@ public class Parser {
     }
 
     private Token consumeType(String message) {
-        if (match(TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER, LIST, SET, MAP)) {
+        if (match(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, FUNCTION, IDENTIFIER, LIST, SET, MAP)) {
             Token type = previous();
 
             // Handle dotted identifiers: network.Client

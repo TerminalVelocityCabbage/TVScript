@@ -1,10 +1,13 @@
 package com.terminalvelocitycabbage.tvscript.execution;
 
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import com.terminalvelocitycabbage.tvscript.errors.RuntimeError;
+import com.terminalvelocitycabbage.tvscript.execution.values.ScriptValue;
+import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import java.util.List;
 import java.util.Map;
 
-public class TVScriptTrait {
+public class TVScriptTrait implements ScriptValue {
     final String name;
     final List<TVScriptTrait> supertraits;
     final List<Statement.VarStatement> fields;
@@ -17,6 +20,13 @@ public class TVScriptTrait {
         this.fields = fields;
         this.methods = methods;
         this.constantFields = constantFields;
+    }
+
+    @Override
+    public Object get(Interpreter interpreter, Token name) {
+        Object value = getConstantField(name.lexeme());
+        if (value != null) return value;
+        throw new RuntimeError(name, "Undefined trait constant '" + name.lexeme() + "'.");
     }
 
     public Object getConstantField(String name) {
