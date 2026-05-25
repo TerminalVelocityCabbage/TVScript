@@ -15,6 +15,10 @@ public class ClassType implements Type {
         this(name, new ArrayList<>(), null, new ArrayList<>());
     }
 
+    public ClassType(String name, ClassType superclass, List<TraitType> traits) {
+        this(name, new ArrayList<>(), superclass, traits);
+    }
+
     public ClassType(String name, List<Type> genericArguments, ClassType superclass, List<TraitType> traits) {
         this.name = name;
         this.genericArguments = genericArguments;
@@ -35,11 +39,9 @@ public class ClassType implements Type {
         if (other instanceof ClassType otherClass) {
             if (this.name.equals(otherClass.name)) {
                 // Check generics (invariant for now)
-                if (this.genericArguments.size() != otherClass.genericArguments.size()) return false;
-                for (int i = 0; i < this.genericArguments.size(); i++) {
-                    if (!this.genericArguments.get(i).equals(otherClass.genericArguments.get(i))) return false;
-                }
-                return true;
+                // For now, we are lenient to allow raw types and un-substituted generics to pass
+                // until a full inference system is in place.
+                return true; 
             }
             
             // Check inheritance
@@ -64,6 +66,14 @@ public class ClassType implements Type {
 
     public List<Type> getGenericArguments() {
         return genericArguments;
+    }
+
+    public ClassType getSuperclass() {
+        return superclass;
+    }
+
+    public List<TraitType> getTraits() {
+        return traits;
     }
 
     @Override

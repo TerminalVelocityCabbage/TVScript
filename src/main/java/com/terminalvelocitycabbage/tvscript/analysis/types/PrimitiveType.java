@@ -11,6 +11,7 @@ public class PrimitiveType implements Type {
     public static final PrimitiveType RANGE = new PrimitiveType(TokenType.TYPE_RANGE, "range");
     public static final PrimitiveType NONE = new PrimitiveType(TokenType.NONE, "none");
     public static final PrimitiveType VOID = new PrimitiveType(TokenType.NONE, "void"); // For function returns
+    public static final PrimitiveType FUNCTION = new PrimitiveType(TokenType.FUNCTION, "function");
 
     private final TokenType tokenType;
     private final String name;
@@ -28,7 +29,8 @@ public class PrimitiveType implements Type {
     @Override
     public boolean isAssignableTo(Type other) {
         if (this == other) return true;
-        if (other == NONE) return true; // Everything is assignable to none? No, usually other way around.
+        if (this == NONE) return true; 
+        if (other == NONE) return true;
         
         // Primitive widening (e.g., integer to decimal)
         if (this == INTEGER && other == DECIMAL) return true;

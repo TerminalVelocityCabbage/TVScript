@@ -14,6 +14,10 @@ public class TraitType implements Type {
         this(name, new ArrayList<>(), new ArrayList<>());
     }
 
+    public TraitType(String name, List<TraitType> supertraits) {
+        this(name, new ArrayList<>(), supertraits);
+    }
+
     public TraitType(String name, List<Type> genericArguments, List<TraitType> supertraits) {
         this.name = name;
         this.genericArguments = genericArguments;
