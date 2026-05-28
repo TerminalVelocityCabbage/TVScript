@@ -1,5 +1,6 @@
 package com.terminalvelocitycabbage.tvscript;
 
+import com.terminalvelocitycabbage.tvscript.CompilationContext;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
 import com.terminalvelocitycabbage.tvscript.parsing.Scanner;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
@@ -35,14 +36,15 @@ class StatementTest {
 
     private void run(String source) {
         reporter.reset();
+        CompilationContext context = new CompilationContext(reporter);
 
-        Scanner scanner = new Scanner(source, reporter);
+        Scanner scanner = new Scanner(source, context);
         List<Token> tokens = scanner.scanTokens();
-        Parser parser = new Parser(tokens, reporter);
+        Parser parser = new Parser(tokens, context);
         List<Statement> statements = parser.parseStatements();
         if (reporter.hasError()) throw new RuntimeException("Parse error");
 
-        TypeChecker typeChecker = new TypeChecker(reporter);
+        TypeChecker typeChecker = new TypeChecker(context);
         typeChecker.check(statements);
         if (reporter.hasError()) throw new RuntimeException("Type check error");
 

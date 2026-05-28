@@ -24,10 +24,6 @@ import java.util.List;
  */
 public class TVScript {
 
-    private static final DiagnosticReporter globalReporter = new DefaultDiagnosticReporter();
-    public static boolean hadError = false;
-    public static boolean hadRuntimeError = false;
-
     private final DiagnosticReporter reporter;
     private final Interpreter interpreter;
 
@@ -88,30 +84,34 @@ public class TVScript {
         }
     }
 
-    public void runScript(String source) {
-        Scanner scanner = new Scanner(source, reporter);
+    public CompilationResult compile(String source) {
+        CompilationContext context = new CompilationContext(
+                reporter,
+                interpreter.getNativeFunctions(),
+                interpreter.getEnvironment().getNativeClasses()
+        );
+        Scanner scanner = new Scanner(source, context);
         List<Token> tokens = scanner.scanTokens();
-        Parser parser = new Parser(tokens, reporter);
+        Parser parser = new Parser(tokens, context);
         List<Statement> statements = parser.parseStatements();
 
-        // Stop if there was a syntax error.
-        if (reporter.hasError()) {
-            CompileError first = reporter.getFirstCompileError();
-            if (first != null) throw first;
-            return;
+        if (!reporter.hasError()) {
+            TypeChecker typeChecker = new TypeChecker(context);
+            typeChecker.check(statements);
         }
 
-        TypeChecker typeChecker = new TypeChecker(interpreter.getNativeFunctions(), interpreter.getEnvironment().getNativeClasses(), reporter);
-        typeChecker.check(statements);
+        return new CompilationResult(statements, reporter);
+    }
 
-        // Stop if there was a static analysis error.
-        if (reporter.hasError()) {
-            CompileError first = reporter.getFirstCompileError();
-            if (first != null) throw first;
-            return;
+    public CompilationResult runScript(String source) {
+        CompilationResult result = compile(source);
+
+        if (result.hasErrors()) {
+            return result;
         }
 
-        interpreter.interpret(statements);
+        interpreter.interpret(result.statements());
+        return result;
     }
 
     /**
@@ -121,8 +121,6 @@ public class TVScript {
     public static void run(String source) {
         TVScript tv = new TVScript();
         tv.runScript(source);
-        hadError = tv.getReporter().hasError();
-        hadRuntimeError = tv.getReporter().hasRuntimeError();
     }
 
     /**
@@ -131,8 +129,6 @@ public class TVScript {
     public static void run(String source, Interpreter interpreter) {
         TVScript tv = new TVScript(interpreter);
         tv.runScript(source);
-        hadError = tv.getReporter().hasError();
-        hadRuntimeError = tv.getReporter().hasRuntimeError();
     }
 
     public Interpreter getInterpreter() {

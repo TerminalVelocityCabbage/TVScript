@@ -21,6 +21,10 @@ public class PrimitiveType implements Type {
         this.name = name;
     }
 
+    public boolean isNumeric() {
+        return this == INTEGER || this == DECIMAL;
+    }
+
     @Override
     public String getName() {
         return name;

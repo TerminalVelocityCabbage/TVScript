@@ -1,5 +1,6 @@
 package com.terminalvelocitycabbage.tvscript.parsing;
 
+import com.terminalvelocitycabbage.tvscript.CompilationContext;
 import com.terminalvelocitycabbage.tvscript.TVScript;
 
 import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
@@ -13,6 +14,7 @@ import java.util.Stack;
 public class Scanner {
 
     private final String source;
+    private final CompilationContext context;
     private final DiagnosticReporter reporter;
     private final List<Token> tokens = new ArrayList<>();
     private int start = 0;
@@ -98,8 +100,13 @@ public class Scanner {
     }
 
     public Scanner(String source, DiagnosticReporter reporter) {
+        this(source, new CompilationContext(reporter));
+    }
+
+    public Scanner(String source, CompilationContext context) {
         this.source = source;
-        this.reporter = reporter;
+        this.context = context;
+        this.reporter = context.getReporter();
         this.indentLevels.push(0);
     }
 

@@ -1,6 +1,9 @@
 package com.terminalvelocitycabbage.tvscript;
 
+import com.terminalvelocitycabbage.tvscript.CompilationContext;
 import com.terminalvelocitycabbage.tvscript.ast.Statement;
+import com.terminalvelocitycabbage.tvscript.errors.DefaultDiagnosticReporter;
+import com.terminalvelocitycabbage.tvscript.errors.DiagnosticReporter;
 import com.terminalvelocitycabbage.tvscript.parsing.Scanner;
 import com.terminalvelocitycabbage.tvscript.parsing.Token;
 import com.terminalvelocitycabbage.tvscript.parsing.Parser;
@@ -35,28 +38,28 @@ class LoopTest {
     }
 
     private void run(String source) {
-        TVScript.hadError = false;
-        TVScript.hadRuntimeError = false;
+        DiagnosticReporter reporter = new DefaultDiagnosticReporter();
+        CompilationContext context = new CompilationContext(reporter);
 
-        Scanner scanner = new Scanner(source);
+        Scanner scanner = new Scanner(source, context);
         List<Token> tokens = scanner.scanTokens();
-        Parser parser = new Parser(tokens);
+        Parser parser = new Parser(tokens, context);
         List<Statement> statements = parser.parseStatements();
-        if (TVScript.hadError) {
+        if (reporter.hasError()) {
             originalOut.println(outContent.toString());
             originalErr.println(errContent.toString());
             throw new RuntimeException("Parse error");
         }
 
-        TypeChecker typeChecker = new TypeChecker();
+        TypeChecker typeChecker = new TypeChecker(context);
         typeChecker.check(statements);
-        if (TVScript.hadError) {
+        if (reporter.hasError()) {
             originalOut.println(outContent.toString());
             originalErr.println(errContent.toString());
             throw new RuntimeException("Type check error");
         }
 
-        Interpreter interpreter = new Interpreter();
+        Interpreter interpreter = new Interpreter(reporter);
         interpreter.interpret(statements);
     }
 
