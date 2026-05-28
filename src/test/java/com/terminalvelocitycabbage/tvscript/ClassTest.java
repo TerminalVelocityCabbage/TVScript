@@ -43,7 +43,10 @@ class ClassTest {
         List<Token> tokens = scanner.scanTokens();
         Parser parser = new Parser(tokens, reporter);
         List<Statement> statements = parser.parseStatements();
-        if (reporter.hasError()) throw new RuntimeException("Parse error");
+        if (reporter.hasError()) {
+            System.out.println("Parse errors: " + reporter.getFirstCompileError().getMessage() + " at '" + reporter.getFirstCompileError().token.lexeme() + "' line " + reporter.getFirstCompileError().token.line());
+            throw new RuntimeException("Parse error");
+        }
 
         TypeChecker typeChecker = new TypeChecker(reporter);
         typeChecker.check(statements);

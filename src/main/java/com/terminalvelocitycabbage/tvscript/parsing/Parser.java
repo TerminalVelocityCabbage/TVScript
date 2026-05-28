@@ -64,9 +64,18 @@ public class Parser extends BaseParser {
     public List<Statement> parseStatements() {
         List<Statement> statements = new ArrayList<>();
         while (!isAtEnd()) {
-            statements.add(declaration());
+            int before = current;
+            Statement decl = declaration();
+            if (decl != null) {
+                statements.add(decl);
+            }
             // Consume optional newlines after statements
             while (match(NEWLINE));
+
+            // Safety check to prevent infinite loop if declaration() fails to progress
+            if (current == before && !isAtEnd()) {
+                advance();
+            }
         }
         return statements;
     }
@@ -232,7 +241,7 @@ public class Parser extends BaseParser {
         return genericParameters;
     }
 
-    private boolean looksLikeGenericParameterDeclaration() {
+    boolean looksLikeGenericParameterDeclaration() {
         if (!check(LESS)) {
             return false;
         }
@@ -279,6 +288,7 @@ public class Parser extends BaseParser {
     }
 
     void synchronize() {
+        if (isAtEnd()) return;
         advance();
         while (!isAtEnd()) {
             if (previous().type() == NEWLINE) return;

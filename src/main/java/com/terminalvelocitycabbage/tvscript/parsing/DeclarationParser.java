@@ -55,7 +55,11 @@ public class DeclarationParser extends BaseParser {
                 advance();
                 return classDeclaration(true, visibility);
             }
-            if (match(CLASS)) return classDeclaration(false, visibility);
+            if (check(CLASS)) {
+                System.err.println("[DEBUG_LOG] Parsing class at line " + peek().line());
+                advance();
+                return classDeclaration(false, visibility);
+            }
             if (match(TRAIT)) return traitDeclaration();
             if (match(TYPE)) return typeDeclaration();
             if (match(CONSTRAINT)) return constraintDeclaration();
@@ -71,15 +75,21 @@ public class DeclarationParser extends BaseParser {
             }
 
             // Check for type-prefixed function or variable
-            if (check(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP) ||
+            if (isTypeToken(peek().type()) ||
                 (check(IDENTIFIER) && masterParser.looksLikeTypedVariableDeclaration())) {
 
-                Token typeToken = consumeType("Expect type.");
-                if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
-                    Token name = advance();
-                    return finishFunctionDeclaration(name, "function", false, false, visibility, typeToken);
+                int checkpoint = current;
+                try {
+                    Token typeToken = consumeType("Expect type.");
+                    if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
+                        Token name = advance();
+                        return finishFunctionDeclaration(name, "function", false, false, visibility, typeToken);
+                    }
+                    return varDeclaration(typeToken, visibility);
+                } catch (ParseError e) {
+                    current = checkpoint;
+                    // fall through
                 }
-                return varDeclaration(typeToken, visibility);
             }
 
             if (visibility != null) {
@@ -221,43 +231,52 @@ public class DeclarationParser extends BaseParser {
         }
 
         consume(COLON, "Expect ':' before class body.");
-        consume(NEWLINE, "Expect newline after class colon.");
-        consume(INDENT, "Expect indentation before class body.");
 
         List<VarStatement> fields = new ArrayList<>();
         List<FunctionStatement> methods = new ArrayList<>();
         List<FunctionStatement> staticMethods = new ArrayList<>();
         List<FunctionStatement> constructors = new ArrayList<>();
 
-        while (!check(DEDENT) && !isAtEnd()) {
-            Token memberVisibility = null;
-            if (match(PUBLIC, PRIVATE, PROTECTED, MODULE)) {
-                memberVisibility = previous();
-            }
+        if (match(NEWLINE)) {
+            if (match(INDENT)) {
+                while (!check(DEDENT) && !isAtEnd()) {
+                    Token memberVisibility = null;
+                    if (match(PUBLIC, PRIVATE, PROTECTED, MODULE)) {
+                        memberVisibility = previous();
+                    }
 
-            if (match(FUNCTION)) {
-                methods.add(finishFunctionDeclaration(consume(IDENTIFIER, "Expect method name."), "method", false, false, memberVisibility, null));
-            } else if (match(OVERRIDE)) {
-                consume(FUNCTION, "Expect 'function' after 'override'.");
-                methods.add(finishFunctionDeclaration(consume(IDENTIFIER, "Expect method name."), "method", true, false, memberVisibility, null));
-            } else if (match(CONSTRUCTOR)) {
-                constructors.add(finishFunctionDeclaration(previous(), "constructor", false, false, memberVisibility, null));
-            } else if (check(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP) ||
-                       (check(IDENTIFIER) && masterParser.looksLikeTypedVariableDeclaration())) {
-                Token type = consumeType("Expect type.");
-                if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
-                    Token methodName = advance();
-                    methods.add(finishFunctionDeclaration(methodName, "method", false, false, memberVisibility, type));
-                } else {
-                    fields.add((VarStatement) varDeclaration(type, memberVisibility));
+                    if (match(FUNCTION)) {
+                        methods.add(finishFunctionDeclaration(consume(IDENTIFIER, "Expect method name."), "method", false, false, memberVisibility, null));
+                    } else if (match(OVERRIDE)) {
+                        consume(FUNCTION, "Expect 'function' after 'override'.");
+                        methods.add(finishFunctionDeclaration(consume(IDENTIFIER, "Expect method name."), "method", true, false, memberVisibility, null));
+                    } else if (match(CONSTRUCTOR)) {
+                        constructors.add(finishFunctionDeclaration(previous(), "constructor", false, false, memberVisibility, null));
+                    } else if (isTypeToken(peek().type()) ||
+                               (check(IDENTIFIER) && masterParser.looksLikeTypedVariableDeclaration())) {
+
+                        int checkpoint = current;
+                        try {
+                            Token type = consumeType("Expect type.");
+                            if (check(IDENTIFIER) && (check(LEFT_PAREN) || (check(LESS) && masterParser.looksLikeGenericParameterDeclaration()))) {
+                                Token methodName = advance();
+                                methods.add(finishFunctionDeclaration(methodName, "method", false, false, memberVisibility, type));
+                            } else {
+                                fields.add((VarStatement) varDeclaration(type, memberVisibility));
+                            }
+                        } catch (ParseError e) {
+                            current = checkpoint;
+                            throw e;
+                        }
+                    } else {
+                        throw error(peek(), "Expect member declaration.");
+                    }
+                    while (match(NEWLINE));
                 }
-            } else {
-                throw error(peek(), "Expect member declaration.");
-            }
-            while (match(NEWLINE));
-        }
 
-        consume(DEDENT, "Expect dedent after class body.");
+                consume(DEDENT, "Expect dedent after class body.");
+            }
+        }
 
         if (constructors.isEmpty() && !isNative) {
             throw error(name, "Class must have a constructor.");
@@ -287,7 +306,7 @@ public class DeclarationParser extends BaseParser {
         while (!check(DEDENT) && !isAtEnd()) {
             if (match(FUNCTION)) {
                 methods.add(finishFunctionDeclaration(consume(IDENTIFIER, "Expect method name."), "method", false, false, null, null));
-            } else if (check(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP) ||
+            } else if (isTypeToken(peek().type()) ||
                        (check(IDENTIFIER) && masterParser.looksLikeTypedVariableDeclaration())) {
                 Token type = consumeType("Expect type.");
                 if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
@@ -329,7 +348,7 @@ public class DeclarationParser extends BaseParser {
                 operators.add(operatorDeclaration(name));
             } else if (match(FUNCTION)) {
                 methods.add(finishFunctionDeclaration(consume(IDENTIFIER, "Expect method name."), "method", false, false, null, null));
-            } else if (check(VAR, CONST, TYPE_INTEGER, TYPE_DECIMAL, TYPE_STRING, TYPE_BOOLEAN, TYPE_RANGE, NONE, LIST, SET, MAP) ||
+            } else if (isTypeToken(peek().type()) ||
                        (check(IDENTIFIER) && masterParser.looksLikeTypedVariableDeclaration())) {
                 Token type = consumeType("Expect type.");
                 if (check(IDENTIFIER) && checkNext(LEFT_PAREN)) {
@@ -401,8 +420,11 @@ public class DeclarationParser extends BaseParser {
         }
         consume(RIGHT_PAREN, "Expect ')' after parameters.");
 
-        if (match(COLON) && returnType == null) {
-            returnType = consumeType("Expect return type.");
+        if (returnType == null) {
+            if (check(COLON) && !checkNext(NEWLINE) && !checkNext(INDENT)) {
+                advance(); // consume ':'
+                returnType = consumeType("Expect return type.");
+            }
         }
 
         Statement body = null;
@@ -411,11 +433,31 @@ public class DeclarationParser extends BaseParser {
                 consume(INDENT, "Expect indentation after newline in " + kind + " declaration.");
                 body = new BlockStatement(masterParser.block());
             } else {
-                body = statementParser.statement();
+                int checkpoint = current;
+                try {
+                    // Try parsing an expression first (very common for one-liners)
+                    Expression expr = expressionParser.expression();
+                    List<Statement> stmts = new ArrayList<>();
+                    stmts.add(new ExpressionStatement(expr));
+                    body = new BlockStatement(stmts);
+                } catch (ParseError e) {
+                    current = checkpoint;
+                    // If not an expression, maybe it's a statement that is NOT a declaration
+                    try {
+                        Statement stmt = statementParser.statement();
+                        if (stmt instanceof BlockStatement) {
+                            body = stmt;
+                        } else {
+                            List<Statement> stmts = new ArrayList<>();
+                            stmts.add(stmt);
+                            body = new BlockStatement(stmts);
+                        }
+                    } catch (ParseError e2) {
+                        current = checkpoint;
+                        throw e2;
+                    }
+                }
             }
-        } else if (!isDefault && !isNative(name)) {
-            // No body allowed unless default or native (though native is handled separately)
-            // Actually, traits can have abstract methods
         }
 
         return new FunctionStatement(name, parameters, returnType, body, genericParameters, isOverride, isDefault, visibility);
